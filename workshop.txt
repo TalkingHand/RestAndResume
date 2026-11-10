@@ -38,5 +38,9 @@ description=그 밖에 지구력 마지막 단계에서 멈춘 동작은 앉아�
 description=보이는 좀비가 설정 거리 안에 오거나 보이지 않는 좀비라도 5칸 안에 오거나, 직접 움직이거나, 배고픔·갈증·피곤·통증·부상 무들이 설정 단계를 넘거나, 연속 재개 횟수를 넘으면 재개를 취소합니다.
 description=옵션은 옵션 > 모드 > 쉬었다가 계속하기에 있습니다.
 description=클라이언트 전용이라 서버에는 필요 없고, 세이브 중간에 넣고 빼도 됩니다.
+description=
+description=Source: https://github.com/TalkingHand/RestAndResume
+description=
+description=[url=https://ko-fi.com/talkinghands2285][img]https://raw.githubusercontent.com/TalkingHand/RestAndResume/main/art/kofi_button.png[/img][/url]
 tags=Build 42;Interface;Misc
 visibility=public
