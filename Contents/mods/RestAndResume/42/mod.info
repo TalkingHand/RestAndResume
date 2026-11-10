@@ -1,0 +1,7 @@
+name=Rest and Resume
+id=RestAndResume
+description=When a repeating action stops because you are out of breath (exercise, chopping a tree, AreaTasks jobs), sit down, rest until your endurance is back, and start the same work again.
+poster=poster.png
+author=TalkingHand
+modversion=0.1.0
+versionMin=42.0

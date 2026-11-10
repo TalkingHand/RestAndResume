@@ -1,0 +1,66 @@
+Rest and Resume — art concepts (_art/README.md template)
+Attach for all: _art/refs/character_sheet.webp + _art/refs/style_doubleclick.png + _art/refs/chalk_zombie_sheet.png
+Avoid looking like ChopTreeXP (axe swing at a tree, chalk zombie on the trunk): the axe is never swung here, and the chalk zombie is not on a tree.
+
+==================================================================
+A (recommended) "Break between two jobs"
+==================================================================
+Use the attached character sheet for the character's identity and the attached preview image for art style.
+
+Character (keep exactly): early-30s male survivor, short scruffy brown beard, messy brown hair, faded gray headband, red-and-black buffalo plaid flannel with rolled sleeves over dark gray T-shirt, olive work pants, brown work boots.
+Style: bold black ink outlines, gritty comic style, muted desaturated palette, red accent. Square 1:1 composition, readable at small thumbnail size. No text, no onomatopoeia, no numbers.
+
+Scene: The survivor sits on the bare ground in the center, legs out, leaning back on one hand, sweaty and out of breath, cheeks puffed, drinking from a dented water bottle with the other hand. One eye is open, glancing sideways at his unfinished work: on the LEFT a half-chopped tree, still standing, with a deep notch and the axe stuck in it; on the RIGHT a single iron dumbbell lying on the grass. The man is the largest element and fills the middle third.
+
+Small in the lower-right corner: the chalk zombie from the attached chalk sheet (white chalk stick figure, X eyes, jagged teeth), drawn as chalk on a flat rock, sitting cross-legged and panting with its tongue out, copying the man. No chalk drawing anywhere else in the picture.
+
+==================================================================
+A2 (user's pick, 11-10) "Workout break" — exercise only
+==================================================================
+Use the attached character sheet for the character's FACE, HAIR and HEADBAND only, and the attached preview image for art style.
+
+Character: early-30s male survivor, short scruffy brown beard, messy brown hair, faded gray headband (keep exactly from the sheet). Outfit for this picture only: a sweat-soaked dark gray sleeveless workout shirt, red-and-black buffalo plaid flannel tied around his waist, olive shorts, worn brown work boots.
+Style: bold black ink outlines, gritty comic style, muted desaturated palette, red accent. Square 1:1 composition, readable at small thumbnail size. No text, no letters, no numbers, no onomatopoeia anywhere, including on the wall chart.
+
+Scene: A makeshift home gym in a boarded-up garage, concrete floor. The survivor sits on the floor in the center, legs out, leaning back on one hand, sweaty and out of breath, cheeks puffed, drinking from a dented water bottle with the other hand. He has just put down an iron dumbbell, which lies on the floor right beside his hand. One eye is open, glancing at the wall.
+On the wall behind him: a hand-drawn paper chart pinned with tape, showing a loop of three simple black pictograms joined by curved arrows in a circle: a stick figure lifting a dumbbell -> a stick figure sitting and resting -> a stick figure lifting a dumbbell again, with the arrow continuing back to the start. Pictograms only, no words. The chart is large enough to read at thumbnail size, in the upper part of the picture.
+The man is the largest element and fills the middle third.
+
+Small in the lower-right corner: the chalk zombie from the attached chalk sheet (white chalk stick figure, X eyes, jagged teeth), drawn as chalk on the concrete floor, sitting cross-legged and panting with its tongue out, copying the man. No chalk drawing anywhere else in the picture.
+
+==================================================================
+A2 fix — wall chart only (edit of the chosen A2 image, attach that image only)
+==================================================================
+Edit the attached image. Keep everything exactly as it is: the man, his pose, face, clothes, water bottle, dumbbells, floor, boarded windows, chalk zombie, colors, line style and framing. Change ONLY the wall posters.
+
+1. Remove the poster on the RIGHT wall completely. Replace it with plain cracked concrete wall that matches the surrounding wall.
+2. Redraw the poster on the LEFT wall as ONE clear diagram, same paper, same position and size, pinned with tape:
+   - Exactly THREE black pictograms placed in a triangle, joined by three thick curved black arrows going clockwise in a closed loop.
+   - Top: a stick figure standing, lifting one dumbbell overhead, with two short motion lines.
+   - Bottom right: a stick figure sitting on the floor, leaning back on one hand, holding a water bottle to its mouth (the same pose as the man in the picture), with three small sweat drops.
+   - Bottom left: the same standing figure lifting the dumbbell overhead again, with motion lines.
+   - A small RED circle drawn around the sitting figure, like a "you are here" mark.
+   - Pictograms are simple and bold, all at the same size, large enough to read at a small thumbnail.
+3. No text, no letters, no numbers on the poster or anywhere else. No extra posters.
+
+==================================================================
+B "Already holding the axe" (rest = just a pause)
+==================================================================
+(same Character / Style lines)
+
+Scene: Close, waist-up framing. The survivor sits on a tree stump, exhausted, head tilted back, eyes closed, sweat drops, breathing hard. Both hands still loosely grip the handle of an axe resting across his knees, as if he will stand up and continue any second. Behind him, slightly out of focus, a big tree with a fresh notch cut halfway into the trunk.
+
+Small in a corner: the chalk zombie drawn as chalk on the side of the stump, tapping its wrist like a watch ("time's up"). No chalk drawing anywhere else in the picture.
+
+==================================================================
+C "Rest loop" (most literal, riskiest at 256 px)
+==================================================================
+(same Character / Style lines)
+
+Scene: The survivor sits on the ground catching his breath, water bottle in hand. A single hand-drawn curved arrow made of rough white chalk strokes loops from him around to a ghosted, lighter silhouette of himself standing behind him mid-swing with an axe at a tree. The ghost is translucent and faint, clearly a "next moment", not a second person. No glowing effects.
+
+Small in a corner: the chalk zombie giving a thumbs-up. No other chalk drawing.
+
+Notes
+- Keep the generator watermark on the final image (1024 original in art/, 512 poster.png, 256 preview.png).
+- Check the 256 thumbnail: the panting face and the unfinished tree must still read.
