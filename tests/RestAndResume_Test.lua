@@ -145,7 +145,9 @@ local function reset(name)
 	pl:StopAllActionQueue()
 	R().states = {}
 	R().counts = {}
-	R().overrides = { moodleLimit = 3, enabled = true }
+	-- time-up continuation off by default: only scenario 10 turns it on (older scenarios end exercise by time)
+	R().overrides = { moodleLimit = 3, enabled = true, continueOnTimeUp = false }
+	R().loopCounts = {}
 	local s = stats()
 	s:set(CharacterStat.HUNGER, 0)
 	s:set(CharacterStat.THIRST, 0)
@@ -506,12 +508,230 @@ local function limits()
 	waitTicks(300)
 	check(state() == nil, "hungry at stop (limit 0): no rest", moodle(MoodleType.HUNGRY))
 	removeTree(tree)
+
+	-- 9d. pain (muscle stiffness after exercise) above the moodle limit: AreaTasks chop still rests
+	-- (seen in play 2026-11-10: "not resting: PAIN moodle above limit" after burpees)
+	reset("9d pain does not stop the AreaTasks rest")
+	R().overrides.moodleLimit = 2
+	if not (AreaTasks and AreaTasks.WorkController and AreaTasks.Tasks and AreaTasks.Tasks.CutDownTree) then
+		check(false, "AreaTasks loaded")
+		return
+	end
+	local bd = p():getBodyDamage()
+	for _, part in ipairs({ BodyPartType.UpperLeg_L, BodyPartType.UpperLeg_R, BodyPartType.LowerLeg_L, BodyPartType.LowerLeg_R }) do
+		bd:getBodyPart(part):setAdditionalPain(100)
+	end
+	waitUntil(function() return moodle(MoodleType.PAIN) > 2 end, 600, "9d pain moodle")
+	check(moodle(MoodleType.PAIN) > 2, "pain moodle above limit 2", moodle(MoodleType.PAIN))
+	local x, y, z = base()
+	for yy = y - 6, y - 2 do for xx = x - 3, x + 3 do clearSquare(getCell():getGridSquare(xx, yy, z)) end end
+	local t9 = addTree(x, y - 4, z)
+	giveAxe()
+	local job = AreaTasks.WorkController.start(AreaTasks.Tasks.CutDownTree, p(), AreaTasks.Core.makeBounds(x - 3, y - 5, x + 3, y - 3, z), nil)
+	ok = job ~= nil and waitUntil(function() local c = current(); return c and c.Type == "ISChopTreeAction" and c:isStarted() end, 2400, "9d chop start")
+	check(ok, "9d: AreaTasks job chopping")
+	if ok then
+		waitTicks(120)
+		setEnd(0.05)
+		ok = waitUntil(function() local st = state(); return st and st.rec.kind == "areatasks" end, 600, "9d detect")
+		check(ok, "in pain: AreaTasks endurance block still starts the rest", moodle(MoodleType.PAIN))
+		if ok and waitResting("9d") then
+			setEnd(0.97)
+			ok = waitUntil(function() return state() == nil and AreaTasks.WorkController.activeByPlayer[0] ~= nil end, 1500, "9d resume")
+			check(ok, "in pain: AreaTasks job started again")
+		end
+	end
+	-- end the job the way AreaTasks does (stopRequested), so the next scenario starts clean
+	local j = AreaTasks.WorkController.activeByPlayer[0]
+	if j then
+		j.stopRequested = true
+		ISTimedActionQueue.clear(p())
+		waitUntil(function() return AreaTasks.WorkController.activeByPlayer[0] == nil end, 900, "9d job end")
+	end
+	removeTree(t9)
+end
+
+-- 10. exercise time ran out: continue the same exercise (option continueOnTimeUp)
+local function nowMS() return getGameTime():getCalender():getTimeInMillis() end
+local function fitnessRunning(other)
+	local c = current()
+	if c and c.Type == "ISFitnessAction" and c:isStarted() and c ~= other then return c end
+	return nil
+end
+local function fitnessQueued()
+	local c = current()
+	return c ~= nil and c.Type == "ISFitnessAction"
+end
+local function loopCount()
+	local lc = R().loopCounts[p():getPlayerNum()]
+	return lc and lc.n or 0
+end
+local function startExercise(label, exe, minutes)
+	local data = FitnessExercises.exercisesType[exe]
+	ISTimedActionQueue.add(ISFitnessAction:new(p(), exe, minutes, data, data.type))
+	local ok = waitUntil(function() return fitnessRunning() end, 900, label .. " start")
+	check(ok, label .. ": exercise started")
+	if not ok then return nil end
+	waitTicks(120)
+	return current()
+end
+local function timeUp(c) c.endMS = nowMS() - 1 end
+
+local function loopNoUI()
+	reset("10a time up -> continue (no window), chain, limit")
+	R().overrides.continueOnTimeUp = true
+	R().overrides.maxLoops = 2
+	local c = startExercise("10a", "squats", 20)
+	if not c then return end
+	check(c._rarChain ~= true, "player's own exercise is not a chain")
+	timeUp(c)
+	local ok = waitUntil(function() local st = state(); return st and st.rec.loop end, 300, "10a detect")
+	check(ok, "time up detected as continue")
+	if ok then
+		check(state().phase == "start", "not tired: starts without resting", state().phase)
+		check(state().rec.minutes == 20, "same minutes recorded", state().rec.minutes)
+	end
+	ok = waitUntil(function() return state() == nil and fitnessRunning(c) end, 1200, "10a continue")
+	check(ok, "same exercise started again")
+	local c2 = current()
+	if not ok or not c2 then return end
+	check(c2.exercise == "squats", "continued exercise type", c2.exercise)
+	check(c2.timeToExe == 20, "continued for the first chosen time", c2.timeToExe)
+	check(c2._rarChain == true, "continued exercise marked as chain")
+	check(loopCount() == 1, "loop count 1", loopCount())
+	check(not p():isSitOnGround(), "did not sit down")
+	waitTicks(120)
+	-- second time up: chained, count 2
+	timeUp(c2)
+	ok = waitUntil(function() return state() == nil and fitnessRunning(c2) end, 1500, "10a continue 2")
+	check(ok, "continued a second time")
+	check(loopCount() == 2, "loop count 2", loopCount())
+	local c3 = current()
+	if not ok or not c3 then return end
+	waitTicks(120)
+	-- third time up: limit 2 reached -> stop
+	timeUp(c3)
+	waitTicks(300)
+	check(state() == nil, "limit reached: no continue state")
+	check(not fitnessQueued(), "limit reached: exercise not started again")
+	check(R().loopCounts[p():getPlayerNum()] == nil, "loop count cleared at the limit")
+	local idle = waitUntil(function() return p():getCurrentActionContextStateName() == "idle" end, 300, "10a idle")
+	check(idle, "back to idle after the limit")
+end
+
+local function loopTired()
+	reset("10b time up while tired -> rest, then continue")
+	R().overrides.continueOnTimeUp = true
+	R().overrides.maxRepeats = 1 -- tired restarts are counted separately: must not block the continuation
+	local c = startExercise("10b", "squats", 15)
+	if not c then return end
+	setEnd(0.2)
+	timeUp(c)
+	local ok = waitUntil(function() local st = state(); return st and st.rec.loop end, 600, "10b detect")
+	check(ok, "time up detected as continue")
+	if not ok then return end
+	if not waitResting("10b") then return end
+	check(state().rec.loop and state().rec.tired, "resting before continuing")
+	setEnd(0.97)
+	ok = waitUntil(function() return state() == nil and fitnessRunning(c) end, 1500, "10b continue")
+	check(ok, "same exercise started after resting")
+	local c2 = current()
+	if c2 and c2.Type == "ISFitnessAction" then
+		check(c2.timeToExe == 15, "continued for the first chosen time", c2.timeToExe)
+	end
+	check(loopCount() == 1, "loop count 1", loopCount())
+	-- end cleanly: option off, time up, back to idle (the next reset must not find FitnessState)
+	R().overrides.continueOnTimeUp = false
+	if c2 and c2.Type == "ISFitnessAction" then waitTicks(120); timeUp(c2) end
+	local idle = waitUntil(function() return p():getCurrentActionContextStateName() == "idle" end, 600, "10b idle")
+	check(idle, "10b: back to idle")
+end
+
+local function loopIgnored()
+	reset("10c option off")
+	R().overrides.continueOnTimeUp = false
+	local c = startExercise("10c", "squats", 20)
+	if c then
+		timeUp(c)
+		waitTicks(300)
+		check(state() == nil, "option off: no continue")
+		check(not fitnessQueued(), "option off: exercise not restarted")
+	end
+
+	reset("10d player stops (cancel button / ESC = Java forceStop)")
+	R().overrides.continueOnTimeUp = true
+	c = startExercise("10d", "squats", 20)
+	if c then
+		c.action:forceStop()
+		waitTicks(300)
+		check(state() == nil, "forceStop by the player: no continue")
+		check(not fitnessQueued(), "forceStop: exercise not restarted")
+	end
+
+	reset("10e player clears the queue (walk / other action)")
+	R().overrides.continueOnTimeUp = true
+	c = startExercise("10e", "squats", 20)
+	if c then
+		ISTimedActionQueue.clear(p())
+		waitTicks(300)
+		check(state() == nil, "queue cleared: no continue")
+		check(not fitnessQueued(), "queue cleared: exercise not restarted")
+	end
+
+	reset("10f other action queued, then time up")
+	R().overrides.continueOnTimeUp = true
+	c = startExercise("10f", "squats", 20)
+	if c then
+		ISTimedActionQueue.add(RARTestAction:new(p()))
+		waitTicks(10)
+		timeUp(c)
+		waitTicks(300)
+		check(state() == nil, "other action queued: no continue")
+		check(not fitnessQueued(), "other action queued: exercise not restarted")
+	end
+end
+
+local function loopUI()
+	reset("10g time up -> continue through the fitness window")
+	R().overrides.continueOnTimeUp = true
+	local pl = p()
+	local ui = ISFitnessUI:new(0, 0, 600, 350, pl)
+	ui:initialise()
+	ui:addToUIManager()
+	ISFitnessUI.instance[pl:getPlayerNum() + 1] = ui
+	ui.selectedExe = "squats"
+	ui:selectedNewExercise()
+	ui.exeTime:setText("10")
+	ui:onClick({ internal = "OK" })
+	local ok = waitUntil(function() return fitnessRunning() end, 900, "10g start")
+	check(ok, "exercise started from the window")
+	local c = current()
+	if ok and c then
+		waitTicks(120)
+		timeUp(c)
+		ok = waitUntil(function() return state() == nil and fitnessRunning(c) end, 1200, "10g continue")
+		check(ok, "same exercise started again through the window")
+		local c2 = current()
+		if ok and c2 then
+			check(c2.timeToExe == 10, "window time kept", c2.timeToExe)
+			check(c2.fitnessUI == ui, "started by the window's OK path")
+			check(c2._rarChain == true, "window-started exercise marked as chain")
+			check(ui.currentExercice ~= nil, "window tracks the exercise again")
+			check(loopCount() == 1, "loop count 1", loopCount())
+			waitTicks(60)
+			ui:onClick({ internal = "CANCEL" })
+			waitTicks(240)
+			check(state() == nil, "CANCEL after continuing: no continue")
+		end
+	end
+	ui:setVisible(false); ui:removeFromUIManager(); ISFitnessUI.instance[pl:getPlayerNum() + 1] = nil
 end
 
 ------------------------------------------------------------------ driver
 local SCENARIOS = {
 	{ "fitnessUI", fitnessUI }, { "fitnessNoUI", fitnessNoUI }, { "chop", chop }, { "areaTasks", areaTasks },
 	{ "zombie", zombie }, { "playerCancel", playerCancel }, { "pain", pain }, { "restOnly", restOnly }, { "limits", limits },
+	{ "loopNoUI", loopNoUI }, { "loopTired", loopTired }, { "loopIgnored", loopIgnored }, { "loopUI", loopUI },
 	{ "end", function() reset("end") end },
 }
 

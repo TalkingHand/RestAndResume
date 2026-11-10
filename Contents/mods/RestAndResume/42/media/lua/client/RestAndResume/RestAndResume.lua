@@ -5,12 +5,14 @@
 -- Adapters: ISFitnessAction (exercise), ISChopTreeAction (vanilla tree chopping),
 -- AreaTasks jobs blocked with IGUI_AreaTasks_RequiresEndurance.
 -- Anything else that ends at the max endurance moodle: rest only, no resume.
+-- Exercise whose time ran out: started again for the same time (option), after resting if tired.
 -- See _devnotes/RestAndResume-design.md and vanilla-deps.txt.
 
 RestAndResume = RestAndResume or {}
 local R = RestAndResume
 R.states = R.states or {}   -- playerNum -> state
 R.counts = R.counts or {}   -- playerNum -> { key = ..., n = ... }
+R.loopCounts = R.loopCounts or {} -- playerNum -> { key = ..., n = ... } (exercise continued after its time ran out)
 
 local function log(...)
 	local parts = {}
@@ -30,6 +32,8 @@ local DEFAULTS = {
 	moodleLimit = 2,
 	showText = true,
 	restOnly = true,
+	continueOnTimeUp = true,
+	maxLoops = 5,
 }
 R.overrides = R.overrides or {} -- tests set values here
 
@@ -50,6 +54,10 @@ if PZAPI and PZAPI.ModOptions then
 		getText("IGUI_RestAndResume_ShowText_tooltip"))
 	options:addTickBox("restOnly", getText("IGUI_RestAndResume_RestOnly"), DEFAULTS.restOnly,
 		getText("IGUI_RestAndResume_RestOnly_tooltip"))
+	options:addTickBox("continueOnTimeUp", getText("IGUI_RestAndResume_ContinueOnTimeUp"), DEFAULTS.continueOnTimeUp,
+		getText("IGUI_RestAndResume_ContinueOnTimeUp_tooltip"))
+	options:addSlider("maxLoops", getText("IGUI_RestAndResume_MaxLoops"), 1, 20, 1, DEFAULTS.maxLoops,
+		getText("IGUI_RestAndResume_MaxLoops_tooltip"))
 end
 
 function R.opt(id)
@@ -74,13 +82,15 @@ local function say(p, key, good, ...)
 	if good then HaloTextHelper.addGoodText(p, text) else HaloTextHelper.addBadText(p, text) end
 end
 
--- hunger / thirst / tired / pain / injured above the option level
-local LIMIT_MOODLES = { "HUNGRY", "THIRST", "TIRED", "PAIN", "INJURED" }
+-- hunger / thirst / tired / injured above the option level. Not pain: muscle stiffness from exercise
+-- raises the pain moodle (2-3 after a long workout) and stopped every rest after it, while vanilla
+-- chopping ignores pain; wounds still show as INJURED. Exercise keeps vanilla's pain > 3 rule.
+local LIMIT_MOODLES = { "HUNGRY", "THIRST", "TIRED", "INJURED" }
 function R.moodleOver(p)
 	local limit = R.opt("moodleLimit")
 	for _, name in ipairs(LIMIT_MOODLES) do
 		local t = MoodleType[name]
-		if t and moodle(p, t) > limit then return name end
+		if t and moodle(p, t) > limit then return name, moodle(p, t) end
 	end
 	return nil
 end
@@ -139,9 +149,101 @@ local function fitnessTired(a)
 end
 R.fitnessTired = fitnessTired
 
+-- the exercise time ran out (ISFitnessAction:update endMS check) and nothing the player did stops it
+local function fitnessTimeUp(a)
+	local c = a.character
+	if c:pressedMovement(true) then return false end
+	if c:isClimbing() or c:isAiming() or c:isSittingOnFurniture() or c:getVehicle() then return false end
+	return a.endMS ~= nil and getGameTime():getCalender():getTimeInMillis() > a.endMS
+end
+R.fitnessTimeUp = fitnessTimeUp
+
+local function fitnessUI(p)
+	local ui = ISFitnessUI.instance and ISFitnessUI.instance[p:getPlayerNum() + 1]
+	if ui and ui:isVisible() and ui.player == p then return ui end
+	return nil
+end
+
+-- actions queued behind the stopped one (vanilla resetQueue cancels them): the player wanted something else
+local function otherQueued(a, p)
+	local q = ISTimedActionQueue.queues[p]
+	if not q then return false end
+	for _, x in ipairs(q.queue) do
+		if x ~= a then return true end
+	end
+	return false
+end
+
+-- exercise whose time ran out: same exercise for the time first chosen
+local function detectTimeUp(a, p)
+	if not R.opt("continueOnTimeUp") then return nil end
+	if moodle(p, MoodleType.PAIN) > 3 then
+		log("exercise time over but pain", moodle(p, MoodleType.PAIN), "- not continuing")
+		return nil
+	end
+	if otherQueued(a, p) then
+		log("exercise time over, other action queued - not continuing")
+		return nil
+	end
+	local minutes = tonumber(a.timeToExe)
+	if not minutes or minutes < 1 then return nil end
+	local rec = {
+		kind = "fitness", loop = true, key = "loop:" .. tostring(a.exeDataType), label = tostring(a.exeDataType),
+		exercise = a.exercise, exeDataType = a.exeDataType, minutes = minutes,
+		chained = a._rarChain == true,
+		tired = moodle(p, MoodleType.ENDURANCE) > ISFitnessUI.enduranceLevelThreshold,
+	}
+	-- fitness window open, not tired: keep the window from re-equipping the old items (it would queue
+	-- equip actions right before our restart); they are handed back to the window after the restart,
+	-- or given back to it on cancel so it re-equips them as vanilla does
+	local ui = fitnessUI(p)
+	if ui and not rec.tired and ui.currentExercice then
+		rec.uiStash = { exe = ui.currentExercice, items = ui.itemsToReequip }
+		ui.currentExercice = nil
+		ui.itemsToReequip = {}
+	end
+	return rec
+end
+
+local function restoreUIStash(p, rec)
+	local s = rec and rec.uiStash
+	if not s then return end
+	rec.uiStash = nil
+	local ui = fitnessUI(p) or (ISFitnessUI.instance and ISFitnessUI.instance[p:getPlayerNum() + 1])
+	if not ui then return end
+	ui.itemsToReequip = s.items or {}
+	ui.currentExercice = s.exe -- ISFitnessUI:update re-equips them now that no exercise runs
+end
+R.restoreUIStash = restoreUIStash
+
+-- mark the exercise we just queued: true when it continues a time-up chain (its own time-up then
+-- keeps the loop count), false/nil when it is the player's own exercise resumed after resting
+-- exercises in the queue, also the one the window's OK path holds back behind ISWaitWhileGettingUp
+-- (ISTimedActionQueue.addGetUpAndThen: setOnComplete(ISTimedActionQueue.add, action) -> onCompleteArgs.p1)
+local function queuedFitness(p)
+	local list = {}
+	local q = ISTimedActionQueue.queues[p]
+	for _, x in ipairs(q and q.queue or {}) do
+		if x.Type == "ISFitnessAction" then
+			list[#list + 1] = x
+		elseif x.Type == "ISWaitWhileGettingUp" then
+			local held = x.onCompleteArgs and x.onCompleteArgs.p1
+			if type(held) == "table" and held.Type == "ISFitnessAction" then list[#list + 1] = held end
+		end
+	end
+	return list
+end
+
+local function markChain(p, chain)
+	for _, x in ipairs(queuedFitness(p)) do x._rarChain = chain end
+end
+
 R.adapters.ISFitnessAction = {
 	detect = function(a, p)
-		if not a._rarTired then return nil end
+		if not a._rarTired then
+			if a._rarTimeUp then return detectTimeUp(a, p) end
+			return nil
+		end
 		-- vanilla blocks starting exercise above pain level 3 (ISFitnessUI:updateButtons)
 		if moodle(p, MoodleType.PAIN) > 3 then
 			log("exercise stopped tired but pain", moodle(p, MoodleType.PAIN), "- no resume")
@@ -153,6 +255,7 @@ R.adapters.ISFitnessAction = {
 		return {
 			kind = "fitness", key = "fitness:" .. tostring(a.exeDataType), label = tostring(a.exeDataType),
 			exercise = a.exercise, exeDataType = a.exeDataType, minutes = minutes,
+			chain = a._rarChain == true,
 		}
 	end,
 	-- vanilla refuses to start exercise above the threshold (ISFitnessAction:isValidStart)
@@ -160,6 +263,10 @@ R.adapters.ISFitnessAction = {
 	resume = function(p, r)
 		local exeData = FitnessExercises.exercisesType[r.exercise]
 		if not exeData then return false end
+		if r.loop and moodle(p, MoodleType.PAIN) > 3 then
+			log("pain", moodle(p, MoodleType.PAIN), "- not starting the exercise again")
+			return false
+		end
 		local ui = ISFitnessUI.instance and ISFitnessUI.instance[p:getPlayerNum() + 1]
 		if ui and ui:isVisible() and ui.player == p then
 			-- vanilla OK button path: equips the prop, puts bags away, re-equips afterwards
@@ -167,6 +274,14 @@ R.adapters.ISFitnessAction = {
 			ui:selectedNewExercise()
 			ui.exeTime:setText(tostring(r.minutes))
 			ui:onClick({ internal = "OK" })
+			if r.loop then
+				-- the window re-equips what the player held before the first exercise, not the prop
+				if r.uiStash then ui.itemsToReequip = r.uiStash.items or {}; r.uiStash = nil end
+				if #queuedFitness(p) == 0 then return false end
+				markChain(p, true)
+				return true
+			end
+			markChain(p, r.chain)
 			return true
 		end
 		if exeData.item then
@@ -177,6 +292,7 @@ R.adapters.ISFitnessAction = {
 			end
 		end
 		local action = ISFitnessAction:new(p, r.exercise, r.minutes, exeData, exeData.type)
+		action._rarChain = r.loop or r.chain
 		ISTimedActionQueue.add(action)
 		return true
 	end,
@@ -227,12 +343,15 @@ function R.begin(p, rec)
 	if p:isDead() or p:isAsleep() or p:getVehicle() then return end
 	local num = p:getPlayerNum()
 	local cur = R.states[num]
-	if cur and priority(cur.rec.kind) > priority(rec.kind) then return end
-	local over = R.moodleOver(p)
+	if cur and priority(cur.rec.kind) > priority(rec.kind) then restoreUIStash(p, rec) return end
+	local over, level = R.moodleOver(p)
 	if over then
-		log("not resting:", over, "moodle above limit")
+		log("not resting:", over, "moodle", level, "above limit", R.opt("moodleLimit"), "for", rec.kind, rec.key)
+		say(p, "IGUI_RestAndResume_Moodle", false)
+		restoreUIStash(p, rec)
 		return
 	end
+	if rec.loop then return R.beginLoop(p, num, rec) end
 	local count = R.counts[num]
 	if not count or count.key ~= rec.key then
 		count = { key = rec.key, n = 0 }
@@ -250,6 +369,60 @@ function R.begin(p, rec)
 		say(p, "IGUI_RestAndResume_RestOnly_Text", true)
 	else
 		say(p, "IGUI_RestAndResume_Resting", true)
+	end
+end
+
+-- exercise time ran out: count the chain, then rest first (tired) or start again right away
+function R.beginLoop(p, num, rec)
+	local lc = R.loopCounts[num]
+	if not rec.chained or not lc or lc.key ~= rec.key then
+		lc = { key = rec.key, n = 0 }
+		R.loopCounts[num] = lc
+	end
+	local max = math.floor(R.opt("maxLoops"))
+	if lc.n >= max then
+		log("loop limit reached for", rec.key, lc.n .. "/" .. max)
+		say(p, "IGUI_RestAndResume_LoopLimitReached", false, tostring(lc.n))
+		R.loopCounts[num] = nil
+		restoreUIStash(p, rec)
+		return
+	end
+	R.states[num] = { rec = rec, phase = rec.tired and "sit" or "start", ticks = 0, player = p }
+	log("detected", "timeup", rec.key, "tired", tostring(rec.tired), "loop", (lc.n + 1) .. "/" .. max,
+		"endurance", string.format("%.3f", endurance(p)))
+	if rec.tired then say(p, "IGUI_RestAndResume_Resting", true) end
+end
+
+-- start the recorded work again (after resting or right away); counts and reports
+local function doResume(num, st)
+	local p = st.player
+	local rec = st.rec
+	R.states[num] = nil
+	local count, lc
+	if rec.loop then
+		lc = R.loopCounts[num]
+		if lc and lc.key == rec.key then lc.n = lc.n + 1 end
+		R.counts[num] = nil -- a new run of the exercise: tired restarts count from zero again
+	else
+		count = R.counts[num]
+		if count and count.key == rec.key then count.n = count.n + 1 end
+	end
+	local ok, res = pcall(rec.resume, p, rec)
+	if ok and res then
+		if rec.loop then
+			local max = tostring(math.floor(R.opt("maxLoops")))
+			log("continued", rec.kind, rec.key, "loop", tostring(lc and lc.n or "?") .. "/" .. max, "minutes", rec.minutes)
+			say(p, "IGUI_RestAndResume_Continued", true, tostring(lc and lc.n or 1), max)
+		else
+			log("resumed", rec.kind, rec.key, "count", count and count.n or "?")
+			say(p, "IGUI_RestAndResume_Resumed", true)
+		end
+	else
+		log("resume failed", rec.kind, rec.key, ok and "" or tostring(res))
+		R.counts[num] = nil
+		R.loopCounts[num] = nil
+		restoreUIStash(p, rec)
+		say(p, "IGUI_RestAndResume_ResumeFailed", false)
 	end
 end
 
@@ -368,7 +541,9 @@ function R.cancel(num, reasonKey, why, standUp)
 	if not st then return end
 	R.states[num] = nil
 	R.counts[num] = nil
+	R.loopCounts[num] = nil
 	local p = st.player
+	restoreUIStash(p, st.rec)
 	log("cancelled:", why)
 	if reasonKey then say(p, reasonKey, false) end
 	if standUp and p:isSitting() then p:setVariable("forceGetUp", true) end
@@ -376,6 +551,8 @@ end
 
 local SIT_TIMEOUT = 900  -- ticks to get seated after the stop
 local STAND_TIMEOUT = 600
+local START_DELAY = 30    -- ticks after a time-up stop before starting again
+local START_TIMEOUT = 300 -- stop waiting for the exercise state to end after this
 
 local function tickPlayer(num, st)
 	local p = st.player
@@ -430,18 +607,32 @@ local function tickPlayer(num, st)
 			return
 		end
 		if not queueEmpty(p) then return R.cancel(num, nil, "player queued something else", false) end
-		R.states[num] = nil
-		local count = R.counts[num]
-		if count and count.key == st.rec.key then count.n = count.n + 1 end
-		local ok, res = pcall(st.rec.resume, p, st.rec)
-		if ok and res then
-			log("resumed", st.rec.kind, st.rec.key, "count", count and count.n or "?")
-			say(p, "IGUI_RestAndResume_Resumed", true)
-		else
-			log("resume failed", st.rec.kind, st.rec.key, ok and "" or tostring(res))
-			R.counts[num] = nil
-			say(p, "IGUI_RestAndResume_ResumeFailed", false)
+		doResume(num, st)
+		return
+	end
+
+	-- exercise time ran out, not tired: let the exercise state end, then start it again
+	if st.phase == "start" then
+		if p:pressedMovement(true) then return R.cancel(num, "IGUI_RestAndResume_Cancelled", "moved before continuing", false) end
+		if st.ticks % 10 == 0 then
+			if R.zombieNear(p) then return R.cancel(num, "IGUI_RestAndResume_Zombie", "zombie before continuing", false) end
+			local over = R.moodleOver(p)
+			if over then return R.cancel(num, "IGUI_RestAndResume_Moodle", over, false) end
 		end
+		if st.ticks < START_DELAY then return end
+		if not queueEmpty(p) then return R.cancel(num, nil, "player queued something else", false) end
+		-- tired by now (the moodle can lag the stop): vanilla would refuse to start, rest first
+		if st.rec.ready and not st.rec.ready(p) then
+			log("tired before continuing - resting first")
+			st.rec.tired = true
+			st.phase = "sit"; st.ticks = 0
+			say(p, "IGUI_RestAndResume_Resting", true)
+			return
+		end
+		-- vanilla ISFitnessAction:waitToStart waits for IdleState anyway; give the outro some time
+		local okCtx, ctx = pcall(function() return p:getCurrentActionContextStateName() end)
+		if okCtx and ctx == "fitness" and st.ticks < START_TIMEOUT then return end
+		doResume(num, st)
 	end
 end
 
@@ -470,6 +661,10 @@ local function install()
 		if not self._rarTired and isLocalPlayer(self.character) then
 			local ok, tired = pcall(fitnessTired, self)
 			if ok and tired then self._rarTired = true end
+			if not self._rarTired and not self._rarTimeUp then
+				local ok2, up = pcall(fitnessTimeUp, self)
+				if ok2 and up then self._rarTimeUp = true end
+			end
 		end
 		return origUpdate(self, ...)
 	end

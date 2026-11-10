@@ -9,7 +9,7 @@
     "IGUI_RestAndResume_MaxRepeats": "Resume at most (times in a row)",
     "IGUI_RestAndResume_MaxRepeats_tooltip": "How many times the same work is resumed in a row before giving up.",
     "IGUI_RestAndResume_MoodleLimit": "Cancel above moodle level",
-    "IGUI_RestAndResume_MoodleLimit_tooltip": "Hungry, thirsty, tired, pain or injured moodle above this level cancels the rest (0 = any moodle).",
+    "IGUI_RestAndResume_MoodleLimit_tooltip": "Hungry, thirsty, tired or injured moodle above this level cancels the rest (0 = any moodle). Pain from muscle stiffness does not; exercise is not restarted above pain level 3, as in vanilla.",
     "IGUI_RestAndResume_ShowText": "Show text above the character",
     "IGUI_RestAndResume_ShowText_tooltip": "Short messages when resting starts, is cancelled or the work resumes.",
     "IGUI_RestAndResume_RestOnly": "Also rest after other actions",
@@ -22,5 +22,11 @@
     "IGUI_RestAndResume_Cancelled": "Resume cancelled",
     "IGUI_RestAndResume_Zombie": "Zombie nearby - resume cancelled",
     "IGUI_RestAndResume_Moodle": "Not fit to continue - resume cancelled",
-    "IGUI_RestAndResume_LimitReached": "Resumed too many times - stopping"
+    "IGUI_RestAndResume_LimitReached": "Resumed too many times - stopping",
+    "IGUI_RestAndResume_ContinueOnTimeUp": "Continue exercise when its time runs out",
+    "IGUI_RestAndResume_ContinueOnTimeUp_tooltip": "When an exercise ends because its time ran out, start the same exercise again for the same time. Rests first if you are out of breath. Not when you stopped it yourself.",
+    "IGUI_RestAndResume_MaxLoops": "Continue at most (times in a row)",
+    "IGUI_RestAndResume_MaxLoops_tooltip": "How many times an exercise is started again after its time ran out. Counted separately from resumes after resting.",
+    "IGUI_RestAndResume_Continued": "Exercising again (%1/%2)",
+    "IGUI_RestAndResume_LoopLimitReached": "Exercise continued %1 times - stopping"
 }

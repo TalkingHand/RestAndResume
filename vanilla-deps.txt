@@ -1,11 +1,11 @@
 # RestAndResume: vanilla dependencies (format: _guide/README.md §9)
-# checked: 42.22.2 (pzt 2026-11-10 combined client, 80 PASS)
+# checked: 42.22.2 (pzt 2026-11-10 run 233552, 132 PASS: 0.2.0 time-up continue, pain left out of the moodle limit)
 # AreaTasks (workshop 3793163745) internals are listed as kind "mod-*" at the end.
 #
 # kind	target	note
 
 lua-wrap	ISBaseTimedAction.stop	shared/TimedActions/ISBaseTimedAction.lua:63. Installed in Events.OnGameStart; detection runs first (pcall, read-only), original always called
-lua-wrap	ISFitnessAction.update	shared/TimedActions/ISFitnessAction.lua:33. OnGameStart; marks self._rarTired before calling the original
+lua-wrap	ISFitnessAction.update	shared/TimedActions/ISFitnessAction.lua:33. OnGameStart; marks self._rarTired or self._rarTimeUp before calling the original
 lua-file	shared/TimedActions/ISBaseTimedAction.lua	class wrapped
 lua-file	shared/TimedActions/ISFitnessAction.lua	class wrapped / created
 lua-file	shared/TimedActions/ISChopTreeAction.lua	fields read (tree)
@@ -16,7 +16,9 @@ lua-call	ISWorldObjectContextMenu.doChopTree(playerObj, tree)	client/ISUI/ISWorl
 lua-call	ISWorldObjectContextMenu.equip(player, handItem, itemType, primary, twoHands)	exercise prop when the fitness window is closed
 lua-call	PZAPI.ModOptions:create / addTickBox / addSlider / getOption():getValue()	client/PZAPI/ModOptions.lua
 lua-field	ISFitnessUI.enduranceLevelThreshold	client/ISUI/ISFitnessUI.lua:3 (=2)
-lua-field	ISFitnessAction.endMS / exercise / exeDataType	set in ISFitnessAction:new
+lua-field	ISFitnessAction.endMS / exercise / exeDataType / timeToExe / fitnessUI	set in ISFitnessAction:new (:204), fitnessUI by ISFitnessUI:onClick OK
+lua-field	ISFitnessUI.currentExercice / itemsToReequip / player	client/ISUI/ISFitnessUI.lua:213-229 (update re-equips itemsToReequip once getCurrentExe() is nil), :311 (OK sets currentExercice). Time-up continue holds them back and restores them
+lua-field	ISTimedActionQueue.queue	queue entries behind the stopped exercise = player queued something else
 lua-field	ISChopTreeAction.tree
 lua-field	FitnessExercises.exercisesType[type].item / .prop / .type	shared/Definitions/FitnessExercises.lua
 lua-field	action.Type	class name used to pick the adapter
@@ -32,13 +34,18 @@ java-call	IsoGameCharacter:getCharacterActions():isEmpty()
 java-call	Stats:get(CharacterStat.ENDURANCE), Moodles:getMoodleLevel(MoodleType.X)
 java-call	HaloTextHelper.addGoodText / addBadText
 java-call	IsoGridSquare:getTree(), IsoObject:getObjectIndex() / getSquare()
-data	MoodleType.ENDURANCE / HUNGRY / THIRST / TIRED / PAIN / INJURED	zombie.scripting.objects.MoodleType
+data	MoodleType.ENDURANCE / HUNGRY / THIRST / TIRED / PAIN / INJURED	zombie.scripting.objects.MoodleType. PAIN only for the exercise rule (> 3), not the moodle-limit option
+assume	muscle stiffness raises the PAIN moodle	seen 2026-11-10 in play: AreaTasks chop after burpees refused with PAIN above limit 2; why PAIN left the limit list
 event	Events.OnGameStart, Events.OnTick
 
 assume	isValid=false or forceStop -> Java calls Lua stop()	IsoGameCharacter.java:8775-8795. If stop stops being called, nothing is detected
 assume	every timed action stop reaches ISBaseTimedAction.stop	subclasses call ISBaseTimedAction.stop(self) by name; a subclass that skips it is invisible (only rest-only rule affected)
 assume	endurance moodle levels 0.75/0.5/0.25/0.1	MoodleStat.java:9. Fitness stops above level 2 (<=0.25), chopping at level 4 (<=0.1)
 assume	ISFitnessAction:update forceStops on endurance, movement, endMS, climbing/aiming/furniture	ISFitnessAction.lua:33-50. _rarTired copies this test; a new stop reason that keeps the endurance condition would be resumed
+assume	ISFitnessAction:update forceStops when getTimeInMillis() > endMS (:45-49), Lua stop() follows; the time-up mark copies this test and excludes movement/climbing/aiming/furniture/vehicle
+assume	CANCEL button and Esc stop exercise by Java forceStop, not through update (ISFitnessUI.lua:321-327 action:forceStop, client/OptionScreens/MainScreen.lua:1679 Java CancelAction), so they are never marked as time-up
+assume	ISBaseTimedAction.stop resetQueue cancels actions queued behind (ISBaseTimedAction.lua:63, ISTimedActionQueue.lua:101); detection runs before it and sees them
+assume	ISFitnessUI.lua:123 caps the window at 60 minutes; we restart for timeToExe, never longer (ActionSpeedMultiplier divides the server duration)
 assume	muscle stiffness never stops exercise	Fitness.java only adds stiffness; vanilla only blocks starting above PAIN 3 (ISFitnessUI.lua:256), we do the same
 assume	tree HP stays on the tree object (server/Java), re-chopping continues	ISChopTreeAction animEvent -> tree:WeaponHit
 assume	sitting on the ground regains endurance	vanilla passive regen; resting phase only waits
