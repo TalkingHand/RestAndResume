@@ -94,14 +94,35 @@ local function addTree(x, y, z)
 	local tree = IsoTree.new(sq, "e_americanholly_1_3")
 	sq:AddTileObject(tree)
 	sq:RecalcProperties()
+	T.home[tree] = { x = x, y = y, z = z }
 	return tree
 end
 
+-- A felled tree's IsoTree goes back to a pool (IsoTree.toppleTree -> ObjectCache.push) and
+-- CellLoader.DoTileObjectCreation hands it out (IsoTree.getNew) for trees of newly loaded chunks:
+-- a held reference can turn into another tree elsewhere (run 5: "tree2 idx=1 hp=80 sq=11122,6696"
+-- after AreaTasks had felled it). So trees are checked at the square they were put on.
+T.home = T.home or {}
+local function homeSquare(tree)
+	local h = tree and T.home[tree]
+	return h and getCell():getGridSquare(h.x, h.y, h.z) or nil
+end
+-- the tree object if it still stands on its own square, else nil
+local function treeAt(tree)
+	local sq = homeSquare(tree)
+	local t = sq and sq:getTree()
+	if t and t == tree and t:getObjectIndex() >= 0 then return t end
+	return nil
+end
+-- any tree standing on the square this one was put on
+local function squareHasTree(tree)
+	local sq = homeSquare(tree)
+	return sq ~= nil and sq:getTree() ~= nil
+end
+
 local function removeTree(tree)
-	if tree and tree:getObjectIndex() >= 0 then
-		local sq = tree:getSquare()
-		sq:transmitRemoveItemFromSquare(tree)
-	end
+	local t = treeAt(tree)
+	if t then t:getSquare():transmitRemoveItemFromSquare(t) end
 end
 
 local function giveAxe()
@@ -196,7 +217,8 @@ local function fitnessUI()
 	if not ok then return end
 	local rec = state().rec
 	check(rec.exercise == "squats", "same exercise recorded", rec.exercise)
-	check(rec.minutes >= 25 and rec.minutes <= 30, "remaining minutes", rec.minutes)
+	-- 25-30 minutes left, rounded up to the window's 10-minute step, never above the 30 chosen
+	check(rec.minutes == 30, "remaining minutes on the window step", rec.minutes)
 	if not waitResting("fitness") then return end
 	-- real regen while sitting (no forced value): endurance must go up
 	local e0 = getEnd()
@@ -212,6 +234,7 @@ local function fitnessUI()
 		check(c.exercise == "squats", "resumed exercise type", c.exercise)
 		check(c.timeToExe == rec.minutes, "resumed for the remaining minutes", tostring(c.timeToExe) .. " vs " .. tostring(rec.minutes))
 	end
+	check(ui.exeTime:getInternalText() == "30", "window shows the resumed minutes", ui.exeTime:getInternalText())
 	local cnt = R().counts[pl:getPlayerNum()]
 	check(cnt and cnt.n == 1, "repeat count 1", cnt and cnt.n)
 	-- CANCEL button (vanilla: Java forceStop) must not resume
@@ -282,9 +305,60 @@ local function chop()
 	check(c and c.tree == tree, "same tree object")
 	check(h1 <= h0, "tree damage kept while resting", h0 .. " -> " .. h1)
 	waitTicks(400)
-	local h2 = tree:getObjectIndex() >= 0 and tree:getHealth() or -1
+	local h2 = treeAt(tree) and tree:getHealth() or -1
 	check(h2 < h1, "resumed chopping damages the same tree further", h1 .. " -> " .. h2)
 	T.chopTree = tree
+end
+
+-- a 7x5 block north of (x, y) for the AreaTasks scenarios (rows y-6..y-2, columns x-3..x+3), moved
+-- to open ground: run 074440 (combined save, player at 11201,6745) put it under a house (StructuralCollapse
+-- checked the z=1 floors over it after clearSquare) and the resumed job ended "completed" with trees up
+local function blockClear(bx, by, z)
+	local cell = getCell()
+	for yy = by - 6, by - 2 do
+		for xx = bx - 3, bx + 3 do
+			local sq = cell:getGridSquare(xx, yy, z)
+			if not sq or sq:getBuilding() or sq:getRoom() or not sq:isOutside() then return false end
+			local up = cell:getGridSquare(xx, yy, z + 1)
+			if up and up:getFloor() then return false end
+		end
+	end
+	return true
+end
+local function openArea()
+	local x, y, z = base()
+	if blockClear(x, y, z) then return x, y, z end
+	for r = 2, 30, 2 do
+		for dx = -r, r, 2 do
+			for _, dy in ipairs({ -r, r }) do
+				if blockClear(x + dx, y + dy, z) then log("open area moved by", dx, dy); return x + dx, y + dy, z end
+			end
+		end
+		for dy = -r + 2, r - 2, 2 do
+			for _, dx in ipairs({ -r, r }) do
+				if blockClear(x + dx, y + dy, z) then log("open area moved by", dx, dy); return x + dx, y + dy, z end
+			end
+		end
+	end
+	log("no open area within 30 tiles - using the player's spot")
+	return x, y, z
+end
+
+local function areaDiag(label, job, trees)
+	local parts = {}
+	if job then
+		for _, k in ipairs({ "status", "completed", "unreachable", "skipped", "stale", "blockedReason" }) do
+			parts[#parts + 1] = k .. "=" .. tostring(job[k])
+		end
+	end
+	for i, t in ipairs(trees) do
+		local h = T.home[t]
+		local live = treeAt(t)
+		parts[#parts + 1] = string.format("tree%d home=%s standing=%s hp=%s squareHasTree=%s", i,
+			h and (h.x .. "," .. h.y) or "?", tostring(live ~= nil), tostring(live and live:getHealth() or "-"),
+			tostring(squareHasTree(t)))
+	end
+	log("AREA", label, table.concat(parts, " "))
 end
 
 -- 4. AreaTasks continuous chopping: job blocked by RequiresEndurance, restarted with the same area
@@ -295,7 +369,7 @@ local function areaTasks()
 		return
 	end
 	removeTree(T.chopTree)
-	local x, y, z = base()
+	local x, y, z = openArea()
 	for yy = y - 6, y - 2 do for xx = x - 3, x + 3 do clearSquare(getCell():getGridSquare(xx, yy, z)) end end
 	local trees = { addTree(x - 2, y - 4, z), addTree(x + 2, y - 4, z) }
 	giveAxe()
@@ -326,11 +400,14 @@ local function areaTasks()
 		check(job2 ~= job and job2.task == job.task, "same task, new job")
 		check(info and info.bounds.x1 == bounds.x1 and info.bounds.y2 == bounds.y2 and info.bounds.z == bounds.z, "same area")
 		-- let it finish quickly
-		for _, t in ipairs(trees) do if t:getObjectIndex() >= 0 then t:setHealth(1) end end
+		for _, t in ipairs(trees) do local live = treeAt(t); if live then live:setHealth(1) end end
 		ok = waitUntil(function() return AreaTasks.WorkController.activeByPlayer[0] == nil end, 3600, "area finish")
-		for _, t in ipairs(trees) do if t:getObjectIndex() >= 0 then t:setHealth(1) end end
+		areaDiag("job2 finished", job2, trees)
 		check(ok and job2.status == "completed", "resumed job completed", job2.status)
-		check(trees[1]:getObjectIndex() < 0 and trees[2]:getObjectIndex() < 0, "both trees in the area are down")
+		-- a felled tree can stay in the square for a few frames after the job counts it
+		local down = waitUntil(function() return not squareHasTree(trees[1]) and not squareHasTree(trees[2]) end, 300)
+		if not down then areaDiag("trees still up", job2, trees) end
+		check(down, "both trees in the area are down")
 	end
 end
 
@@ -523,7 +600,7 @@ local function limits()
 	end
 	waitUntil(function() return moodle(MoodleType.PAIN) > 2 end, 600, "9d pain moodle")
 	check(moodle(MoodleType.PAIN) > 2, "pain moodle above limit 2", moodle(MoodleType.PAIN))
-	local x, y, z = base()
+	local x, y, z = openArea()
 	for yy = y - 6, y - 2 do for xx = x - 3, x + 3 do clearSquare(getCell():getGridSquare(xx, yy, z)) end end
 	local t9 = addTree(x, y - 4, z)
 	giveAxe()
@@ -727,11 +804,279 @@ local function loopUI()
 	ui:setVisible(false); ui:removeFromUIManager(); ISFitnessUI.instance[pl:getPlayerNum() + 1] = nil
 end
 
+-- 11. minutes left after a tired stop are rounded up to the fitness window's 10-minute step
+-- (ISFitnessUI.lua:120-130: + adds 10 up to 60, - takes 10 down to 10, the box is not editable).
+-- Bug 0.2.0: 23 or 7 minutes left were shown in the window; +/- then went to 63 or stayed at 7.
+local function stepMath()
+	reset("11 remaining minutes on the window step")
+	local f = R().fitnessMinutes
+	local function m(minutes) return minutes * 60000 end
+	check(f(m(23), 60) == 30, "23 left of 60 -> 30", f(m(23), 60))
+	check(f(m(7), 10) == 10, "7 left of 10 -> 10", f(m(7), 10))
+	check(f(m(20), 30) == 20, "20 left -> 20 (already on the step)", f(m(20), 30))
+	check(f(m(59.5), 60) == 60, "59.5 left of 60 -> 60", f(m(59.5), 60))
+	check(f(m(1.2), 60) == 10, "1.2 left -> 10", f(m(1.2), 60))
+	check(f(m(0.5), 60) == nil, "under 1 minute left -> no resume", f(m(0.5), 60))
+	check(f(m(12), 15) == 15, "never longer than the time first chosen (15 set by code)", f(m(12), 15))
+end
+
+local function stepNoUI()
+	reset("11a 23.5 minutes left (no window) -> 30, time-up continue uses the 40 first chosen")
+	R().overrides.continueOnTimeUp = true
+	local c = startExercise("11a", "squats", 40)
+	if not c then return end
+	c.endMS = nowMS() + 23.5 * 60000
+	setEnd(0.2)
+	local ok = waitUntil(function() local st = state(); return st and st.rec.kind == "fitness" and not st.rec.loop end, 600, "11a detect")
+	check(ok, "tired stop detected")
+	if not ok then return end
+	check(state().rec.minutes == 30, "23.5 minutes left recorded as 30", state().rec.minutes)
+	check(state().rec.chosen == 40, "first chosen time kept", state().rec.chosen)
+	if not waitResting("11a") then return end
+	setEnd(0.97)
+	ok = waitUntil(function() return state() == nil and fitnessRunning(c) end, 1500, "11a resume")
+	check(ok, "exercise resumed")
+	local c2 = current()
+	if not ok or not c2 then return end
+	check(c2.timeToExe == 30, "resumed for 30 minutes", c2.timeToExe)
+	check(c2._rarChosen == 40, "resumed exercise remembers the 40 first chosen", c2._rarChosen)
+	waitTicks(120)
+	timeUp(c2)
+	ok = waitUntil(function() return state() == nil and fitnessRunning(c2) end, 1500, "11a continue")
+	check(ok, "time up after the resume: continued")
+	local c3 = current()
+	if c3 and c3.Type == "ISFitnessAction" then
+		check(c3.timeToExe == 40, "continued for the 40 first chosen, not the 30 remainder", c3.timeToExe)
+	end
+	-- end cleanly: option off, time up, back to idle
+	R().overrides.continueOnTimeUp = false
+	if c3 and c3.Type == "ISFitnessAction" then waitTicks(120); timeUp(c3) end
+	local idle = waitUntil(function() return p():getCurrentActionContextStateName() == "idle" end, 600, "11a idle")
+	check(idle, "11a: back to idle")
+end
+
+local function stepUI()
+	reset("11b 7 minutes left (window) -> 10, window +/- stay on the step")
+	local pl = p()
+	local ui = ISFitnessUI:new(0, 0, 600, 350, pl)
+	ui:initialise()
+	ui:addToUIManager()
+	ISFitnessUI.instance[pl:getPlayerNum() + 1] = ui
+	local function close() ui:setVisible(false); ui:removeFromUIManager(); ISFitnessUI.instance[pl:getPlayerNum() + 1] = nil end
+	ui.selectedExe = "squats"
+	ui:selectedNewExercise()
+	ui.exeTime:setText("10")
+	ui:onClick({ internal = "OK" })
+	local ok = waitUntil(function() return fitnessRunning() end, 900, "11b start")
+	check(ok, "exercise started from the window")
+	local c = current()
+	if not ok or not c then close() return end
+	waitTicks(120)
+	c.endMS = nowMS() + 7 * 60000
+	setEnd(0.2)
+	ok = waitUntil(function() local st = state(); return st and st.rec.kind == "fitness" end, 600, "11b detect")
+	check(ok, "tired stop detected")
+	if not ok then close() return end
+	check(state().rec.minutes == 10, "7 minutes left recorded as 10", state().rec.minutes)
+	if not waitResting("11b") then close() return end
+	setEnd(0.97)
+	ok = waitUntil(function() return state() == nil and fitnessRunning(c) end, 1500, "11b resume")
+	check(ok, "exercise resumed through the window")
+	local c2 = current()
+	if ok and c2 then
+		check(c2.timeToExe == 10, "resumed for 10 minutes", c2.timeToExe)
+		check(c2.fitnessUI == ui, "started by the window's OK path")
+	end
+	check(ui.exeTime:getInternalText() == "10", "window shows 10", ui.exeTime:getInternalText())
+	-- the window's own buttons (function calls, not real clicks): stay inside 10..60 on the step
+	ui:onClickTime({ internal = "TIMEPLUS" })
+	check(ui.exeTime:getInternalText() == "20", "+ -> 20", ui.exeTime:getInternalText())
+	ui:onClickTime({ internal = "TIMEMINUS" })
+	ui:onClickTime({ internal = "TIMEMINUS" })
+	check(ui.exeTime:getInternalText() == "10", "- twice -> stays at 10", ui.exeTime:getInternalText())
+	waitTicks(60)
+	ui:onClick({ internal = "CANCEL" })
+	waitTicks(240)
+	check(state() == nil, "CANCEL after the resume: no rest")
+	local idle = waitUntil(function() return p():getCurrentActionContextStateName() == "idle" end, 600, "11b idle")
+	check(idle, "11b: back to idle")
+	close()
+end
+
+-- 12. fitness window past 60: + steps 60 -> 90 -> 120 -> 180 -> No limit (our onClickTime).
+-- No limit = 60-minute chunks continued on time-up without the continue option or its limit,
+-- and tired resumes without the repeat limit, until the player stops it.
+local function newWindow()
+	local pl = p()
+	local ui = ISFitnessUI:new(0, 0, 600, 350, pl)
+	ui:initialise()
+	ui:addToUIManager()
+	ISFitnessUI.instance[pl:getPlayerNum() + 1] = ui
+	local function close() ui:setVisible(false); ui:removeFromUIManager(); ISFitnessUI.instance[pl:getPlayerNum() + 1] = nil end
+	return ui, close
+end
+
+local function longSteps()
+	reset("12a window steps past 60 to No limit")
+	local f = R().fitnessMinutes
+	local function m(minutes) return minutes * 60000 end
+	check(f(m(70), 90) == 90, "70 left of 90 -> 90", f(m(70), 90))
+	check(f(m(61), 120) == 90, "61 left of 120 -> 90", f(m(61), 120))
+	check(f(m(100), 180) == 120, "100 left of 180 -> 120", f(m(100), 180))
+	check(f(m(150), 180) == 180, "150 left of 180 -> 180", f(m(150), 180))
+	local ui, close = newWindow()
+	local INF = R().INFINITE
+	-- what the box means: its number, or "inf" (empty box + flag, drawn as the infinity texture)
+	local function txt() local v = R().windowTime(ui); return v == INF and "inf" or ui.exeTime:getInternalText() end
+	local tm = getTextManager()
+	local font = ui.exeTime.font or UIFont.Medium
+	local need = tm:MeasureStringX(font, "180") + 12
+	local base = getTextManager():getFontHeight(UIFont.Small) + 6 -- vanilla BUTTON_HGT
+	check(ui.exeTime:getWidth() >= tm:MeasureStringX(font, "180"), "time box wide enough for 180", ui.exeTime:getWidth())
+	check(ui.exeTime:getWidth() <= math.max(base, need) + 1, "time box not wider than 180 needs", ui.exeTime:getWidth() .. " <= " .. math.max(base, need))
+	local tex = R().infTexture()
+	check(tex ~= nil and tex:getWidth() > 0, "infinity texture loaded (56x30 expected)",
+		tex and (tex:getWidth() .. "x" .. tex:getHeight()) or "nil")
+	check(ui.plusBtn:getX() >= ui.exeTime:getX() + ui.exeTime:getWidth(), "+ button moved right of the box", ui.plusBtn:getX())
+	check(txt() == "10", "window opens at 10", txt())
+	local seen = {}
+	for _ = 1, 9 do ui:onClickTime({ internal = "TIMEPLUS" }); seen[#seen + 1] = txt() end
+	check(table.concat(seen, ",") == "20,30,40,50,60,90,120,180,inf", "+ steps", table.concat(seen, ","))
+	check(ui.exeTime:getInternalText() == "", "No limit: box text empty", ui.exeTime:getInternalText())
+	waitTicks(10)
+	check(ui._rarInfDrawn == true, "No limit: infinity sign drawn over the box", tostring(ui._rarInfDrawn) .. " size " .. tostring(ui._rarInfSize))
+	-- picture for the main session: is the sign visible, sharp enough and centred in the box?
+	-- (the "shot" step hides the UI, so a full screenshot as FishingSpotInfo does)
+	local shotName = "pzt_rar_nolimit_window_" .. getTimestamp() .. ".png"
+	getCore():TakeFullScreenshot(shotName)
+	log("SHOT", shotName, "box", ui:getAbsoluteX() + ui.exeTime:getX(), ui:getAbsoluteY() + ui.exeTime:getY(),
+		ui.exeTime:getWidth() .. "x" .. ui.exeTime:getHeight(), "sign", tostring(ui._rarInfSize))
+	waitTicks(10)
+	ui:onClickTime({ internal = "TIMEPLUS" })
+	check(txt() == "inf", "+ at No limit stays", txt())
+	ui:onClickTime({ internal = "TIMEMINUS" })
+	check(txt() == "180", "- from No limit -> 180", txt())
+	waitTicks(5)
+	check(ui._rarInfDrawn == false, "180: no infinity sign drawn", tostring(ui._rarInfDrawn))
+	ui.exeTime:setText("23")
+	ui:onClickTime({ internal = "TIMEPLUS" })
+	check(txt() == "30", "off-list 23, + -> 30", txt())
+	ui.exeTime:setText("13")
+	ui:onClickTime({ internal = "TIMEMINUS" })
+	check(txt() == "10", "off-list 13, - -> 10 (vanilla gave 3)", txt())
+	-- 120 through the vanilla OK path: a plain vanilla action
+	ui.exeTime:setText("120")
+	ui.selectedExe = "squats"
+	ui:selectedNewExercise()
+	ui:onClick({ internal = "OK" })
+	local ok = waitUntil(function() return fitnessRunning() end, 900, "12a start")
+	check(ok, "120-minute exercise started")
+	local c = current()
+	if ok and c then
+		check(c.timeToExe == 120, "timeToExe 120", c.timeToExe)
+		check(math.abs((c.endMS - c.startMS) - 120 * 60000) < 1, "endMS = start + 120 min")
+		check(c._rarInfinite == nil, "not marked no-limit")
+		waitTicks(60)
+		ui:onClick({ internal = "CANCEL" })
+		waitTicks(240)
+	end
+	local idle = waitUntil(function() return p():getCurrentActionContextStateName() == "idle" end, 600, "12a idle")
+	check(idle, "12a: back to idle")
+	close()
+end
+
+local function noLimitUI()
+	reset("12b No limit through the window: continues past the option and both limits")
+	R().overrides.continueOnTimeUp = false -- No limit ignores it
+	R().overrides.maxLoops = 1
+	R().overrides.maxRepeats = 1
+	local ui, close = newWindow()
+	local INF = R().INFINITE
+	ui.selectedExe = "squats"
+	ui:selectedNewExercise()
+	R().setWindowTime(ui, INF)
+	ui:onClick({ internal = "OK" })
+	check(R().windowTime(ui) == INF and ui.exeTime:getInternalText() == "", "No limit back in the box after OK (empty text)", ui.exeTime:getInternalText())
+	local ok = waitUntil(function() return fitnessRunning() end, 900, "12b start")
+	check(ok, "No limit exercise started")
+	local c = current()
+	if not ok or not c then close() return end
+	check(c._rarInfinite == true, "marked no-limit")
+	check(c.timeToExe == 60, "runs in 60-minute chunks", c.timeToExe)
+	-- two time-ups: continued both times (option off, maxLoops 1)
+	for i = 1, 2 do
+		waitTicks(120)
+		timeUp(c)
+		ok = waitUntil(function() return state() == nil and fitnessRunning(c) end, 1500, "12b continue " .. i)
+		check(ok, "time up " .. i .. ": continued")
+		local c2 = current()
+		if not ok or not c2 then close() return end
+		check(c2._rarInfinite == true and c2.timeToExe == 60, "continued chunk is no-limit, 60 min " .. i, tostring(c2._rarInfinite) .. " " .. tostring(c2.timeToExe))
+		check(c2.fitnessUI == ui, "continued through the window " .. i)
+		check(loopCount() == i, "loop count " .. i, loopCount())
+		c = c2
+	end
+	-- two tired stops: rest and resume both times (maxRepeats 1)
+	for i = 1, 2 do
+		waitTicks(120)
+		setEnd(0.2)
+		ok = waitUntil(function() local st = state(); return st and st.rec.kind == "fitness" and not st.rec.loop end, 600, "12b tired " .. i)
+		check(ok, "tired stop " .. i .. " detected")
+		if not ok then close() return end
+		check(state().rec.infinite == true and state().rec.minutes == 60, "tired " .. i .. ": no-limit, new 60 chunk", state().rec.minutes)
+		if not waitResting("12b " .. i) then close() return end
+		setEnd(0.97)
+		ok = waitUntil(function() return state() == nil and fitnessRunning(c) end, 1500, "12b resume " .. i)
+		check(ok, "tired " .. i .. ": resumed (repeat limit 1 ignored)")
+		local c2 = current()
+		if not ok or not c2 then close() return end
+		check(c2._rarInfinite == true, "resumed exercise still no-limit " .. i)
+		check(R().windowTime(ui) == INF, "window still on No limit " .. i, ui.exeTime:getInternalText())
+		waitTicks(5)
+		check(ui._rarInfDrawn == true, "infinity sign drawn after resume " .. i, tostring(ui._rarInfDrawn))
+		c = c2
+	end
+	-- the player stops it: CANCEL ends the loop
+	waitTicks(60)
+	ui:onClick({ internal = "CANCEL" })
+	waitTicks(300)
+	check(state() == nil, "CANCEL: no continue")
+	check(not fitnessQueued(), "CANCEL: exercise not restarted")
+	local idle = waitUntil(function() return p():getCurrentActionContextStateName() == "idle" end, 600, "12b idle")
+	check(idle, "12b: back to idle")
+	close()
+end
+
+local function noLimitNoUI()
+	reset("12c No limit without the window, then the player clears the queue")
+	R().overrides.continueOnTimeUp = false
+	local c = startExercise("12c", "squats", 60)
+	if not c then return end
+	c._rarInfinite = true
+	c._rarChosen = 60
+	timeUp(c)
+	local ok = waitUntil(function() return state() == nil and fitnessRunning(c) end, 1500, "12c continue")
+	check(ok, "continued without the window")
+	local c2 = current()
+	if ok and c2 then
+		check(c2._rarInfinite == true and c2.timeToExe == 60, "no-limit chunk again", tostring(c2._rarInfinite) .. " " .. tostring(c2.timeToExe))
+		waitTicks(120)
+		ISTimedActionQueue.clear(p())
+		waitTicks(300)
+		check(state() == nil, "queue cleared: no continue")
+		check(not fitnessQueued(), "queue cleared: exercise not restarted")
+	end
+	local idle = waitUntil(function() return p():getCurrentActionContextStateName() == "idle" end, 600, "12c idle")
+	check(idle, "12c: back to idle")
+end
+
 ------------------------------------------------------------------ driver
 local SCENARIOS = {
 	{ "fitnessUI", fitnessUI }, { "fitnessNoUI", fitnessNoUI }, { "chop", chop }, { "areaTasks", areaTasks },
 	{ "zombie", zombie }, { "playerCancel", playerCancel }, { "pain", pain }, { "restOnly", restOnly }, { "limits", limits },
 	{ "loopNoUI", loopNoUI }, { "loopTired", loopTired }, { "loopIgnored", loopIgnored }, { "loopUI", loopUI },
+	{ "stepMath", stepMath }, { "stepNoUI", stepNoUI }, { "stepUI", stepUI },
+	{ "longSteps", longSteps }, { "noLimitUI", noLimitUI }, { "noLimitNoUI", noLimitNoUI },
 	{ "end", function() reset("end") end },
 }
 
@@ -755,7 +1100,17 @@ function T.onTick()
 	if not ok or coroutine.status(T.co) == "dead" then T.co = nil end
 end
 
-function T.start()
+-- T.start("noLimitUI,stepUI") runs only those scenarios (plus "end"); no argument runs them all
+function T.start(only)
+	only = only or (PZTest and PZTest.arg and PZTest.arg("only"))
+	if only and only ~= "" then
+		local want, keep = {}, {}
+		for n in string.gmatch(only, "[^,%s]+") do want[n] = true end
+		for _, sc in ipairs(SCENARIOS) do if want[sc[1]] or sc[1] == "end" then keep[#keep + 1] = sc end end
+		for i = #SCENARIOS, 1, -1 do SCENARIOS[i] = nil end
+		for i, sc in ipairs(keep) do SCENARIOS[i] = sc end
+		log("only", only, #keep .. " scenarios")
+	end
 	T.pass, T.fail, T.done, T.idx, T.co = 0, 0, false, 0, nil
 	T.startedAt = getTimestamp()
 	check(R() ~= nil and R().installed, "mod installed")

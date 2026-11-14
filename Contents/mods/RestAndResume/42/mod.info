@@ -4,5 +4,5 @@ description=When a repeating action stops because you are out of breath (exercis
 poster=poster.png
 author=TalkingHand
 url=https://github.com/TalkingHand/RestAndResume
-modversion=0.2.0
+modversion=0.3.0
 versionMin=42.0

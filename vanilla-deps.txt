@@ -1,10 +1,13 @@
 # RestAndResume: vanilla dependencies (format: _guide/README.md §9)
-# checked: 42.22.2 (pzt 2026-11-10 run 233552, 132 PASS: 0.2.0 time-up continue, pain left out of the moodle limit)
+# checked: 42.22.2 (pzt 2026-11-15 combined run 080750, RAR 224 PASS: 0.3.0 window 10..180 + no limit, resume rounded to the window steps; infinity sign at 40% checked by picture (run 083 1117 screenshot); tree chop alone run 083549, 32 PASS)
 # AreaTasks (workshop 3793163745) internals are listed as kind "mod-*" at the end.
 #
 # kind	target	note
 
 lua-wrap	ISBaseTimedAction.stop	shared/TimedActions/ISBaseTimedAction.lua:63. Installed in Events.OnGameStart; detection runs first (pcall, read-only), original always called
+lua-replace	ISFitnessUI.onClickTime	client/ISUI/ISFitnessUI.lua:120-130 (vanilla +10 while < 60, -10 while > 10). OnGameStart; ours steps R.FITNESS_TIMES 10..60,90,120,180 then No limit (box text "" + ui._rarInfinite). Picked up per window: ISButton target self.onClickTime at initialise (:87, :93)
+lua-wrap	ISFitnessUI.initialise	:27-117. Widens self.exeTime (BUTTON_HGT wide, :78) for "180" only (MeasureStringX + 12), moves self.plusBtn/self.minusBtn right
+lua-wrap	ISFitnessUI.onClick	:306-330. OK on No limit: text set to "60" for the vanilla call (it does tonumber, :310), back to empty + flag after, new queued ISFitnessAction marked _rarInfinite
 lua-wrap	ISFitnessAction.update	shared/TimedActions/ISFitnessAction.lua:33. OnGameStart; marks self._rarTired or self._rarTimeUp before calling the original
 lua-file	shared/TimedActions/ISBaseTimedAction.lua	class wrapped
 lua-file	shared/TimedActions/ISFitnessAction.lua	class wrapped / created
@@ -16,7 +19,7 @@ lua-call	ISWorldObjectContextMenu.doChopTree(playerObj, tree)	client/ISUI/ISWorl
 lua-call	ISWorldObjectContextMenu.equip(player, handItem, itemType, primary, twoHands)	exercise prop when the fitness window is closed
 lua-call	PZAPI.ModOptions:create / addTickBox / addSlider / getOption():getValue()	client/PZAPI/ModOptions.lua
 lua-field	ISFitnessUI.enduranceLevelThreshold	client/ISUI/ISFitnessUI.lua:3 (=2)
-lua-field	ISFitnessAction.endMS / exercise / exeDataType / timeToExe / fitnessUI	set in ISFitnessAction:new (:204), fitnessUI by ISFitnessUI:onClick OK
+lua-field	ISFitnessAction.endMS / exercise / exeDataType / timeToExe / fitnessUI	set in ISFitnessAction:new (:204), fitnessUI by ISFitnessUI:onClick OK. Ours on the same table: _rarTired, _rarTimeUp, _rarChain, _rarChosen (time first chosen, kept across tired resumes), _rarInfinite (No limit chunk)
 lua-field	ISFitnessUI.currentExercice / itemsToReequip / player	client/ISUI/ISFitnessUI.lua:213-229 (update re-equips itemsToReequip once getCurrentExe() is nil), :311 (OK sets currentExercice). Time-up continue holds them back and restores them
 lua-field	ISTimedActionQueue.queue	queue entries behind the stopped exercise = player queued something else
 lua-field	ISChopTreeAction.tree
@@ -45,8 +48,13 @@ assume	ISFitnessAction:update forceStops on endurance, movement, endMS, climbing
 assume	ISFitnessAction:update forceStops when getTimeInMillis() > endMS (:45-49), Lua stop() follows; the time-up mark copies this test and excludes movement/climbing/aiming/furniture/vehicle
 assume	CANCEL button and Esc stop exercise by Java forceStop, not through update (ISFitnessUI.lua:321-327 action:forceStop, client/OptionScreens/MainScreen.lua:1679 Java CancelAction), so they are never marked as time-up
 assume	ISBaseTimedAction.stop resetQueue cancels actions queued behind (ISBaseTimedAction.lua:63, ISTimedActionQueue.lua:101); detection runs before it and sees them
-assume	ISFitnessUI.lua:123 caps the window at 60 minutes; we restart for timeToExe, never longer (ActionSpeedMultiplier divides the server duration)
+assume	vanilla window caps at 60 minutes (ISFitnessUI.lua:123); our +/- allow 90/120/180. ISFitnessAction:new: endMS = startMS + timeToExe*60000 (:215), maxTime = getDuration() = 5,000,000 (:200, :216) for any time, progress bar off (:56 setUseProgressBar(false)); so 180 is an ordinary action. No limit is never a number: 60-minute chunks
+lua-wrap	ISFitnessUI.render	:178. After the original, on No limit draws the infinity texture over self.exeTime; sets self._rarInfDrawn. Lua render runs after the children (UIElement.render bytecode: prerender, children, render), so it is on top of the box
+lua-call	ISUIElement:drawTextureScaled(tex, x, y, w, h, a, r, g, b) / getTexture(path)	the sign is our PNG media/textures/RestAndResume_Infinity.png (56x30, white, ink rows 1-28; made by tools/make_infinity.py), drawn with its ink at 40% of the box height (R.INF_TEX.frac)
+assume	no font path for the sign: UI bitmap fonts (media/fonts EN/KO/JP/CN 1x-4x) have no U+221E; the SDF fonts have it but TextManager/AngelCodeFont.drawString uses no SDF shader (only AtomUIText/AtomUITextEntry), seen as a blurred blob in run 074440
+assume	vanilla fitness window time is 10..60 in steps of 10 (ISFitnessUI.lua:78 starts at "10", :83 not editable, :120-130 onClickTime +10 while < 60, -10 while > 10). R.fitnessMinutes rounds minutes left after a tired stop up to the next R.FITNESS_TIMES value (capped at the time first chosen) before ui.exeTime:setText; an off-step value breaks +/- (23 -> 63, 7 stays 7)
 assume	muscle stiffness never stops exercise	Fitness.java only adds stiffness; vanilla only blocks starting above PAIN 3 (ISFitnessUI.lua:256), we do the same
+assume	a felled IsoTree is pooled and reused for other trees (IsoTree.toppleTree -> ObjectCache.push; CellLoader.DoTileObjectCreation -> IsoTree.getNew): never hold a tree object across a fell; the chop adapter keeps only x,y,z and re-reads square:getTree()
 assume	tree HP stays on the tree object (server/Java), re-chopping continues	ISChopTreeAction animEvent -> tree:WeaponHit
 assume	sitting on the ground regains endurance	vanilla passive regen; resting phase only waits
 

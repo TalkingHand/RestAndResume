@@ -6,6 +6,7 @@
 -- AreaTasks jobs blocked with IGUI_AreaTasks_RequiresEndurance.
 -- Anything else that ends at the max endurance moodle: rest only, no resume.
 -- Exercise whose time ran out: started again for the same time (option), after resting if tired.
+-- Fitness window: + goes past 60 (90/120/180) to "no limit": exercise -> rest -> exercise until stopped.
 -- See _devnotes/RestAndResume-design.md and vanilla-deps.txt.
 
 RestAndResume = RestAndResume or {}
@@ -158,6 +159,73 @@ local function fitnessTimeUp(a)
 end
 R.fitnessTimeUp = fitnessTimeUp
 
+-- Fitness window time. Vanilla: opens at 10, + adds 10 up to 60, - takes 10 down to 10, the box is
+-- not editable (ISFitnessUI.lua:78-83, :120-130), OK reads tonumber(text) (:310). We replace the +/-
+-- buttons with this list: vanilla's 10..60, then 90/120/180, then "no limit" (R.INFINITE).
+-- 180 = 3 in-game hours: the last finite step people pick by hand (each + is one click); anything
+-- longer is what "no limit" is for. ISFitnessAction:new puts endMS = start + minutes*60000 (:215) and
+-- maxTime = getDuration() = 5,000,000 action ticks (:216, :200) whatever the minutes, so 180 is a plain
+-- vanilla action. "No limit" is not a number vanilla can hold: it runs in 60-minute chunks (the
+-- vanilla maximum), each continued on time-up without the continue option or its limit.
+R.FITNESS_TIMES = { 10, 20, 30, 40, 50, 60, 90, 120, 180 }
+R.INFINITE = "inf"          -- marker in R.windowTime
+R.INFINITE_CHUNK = 60       -- minutes per chunk of a no-limit exercise
+
+-- No limit in the window: the box text is empty and ui._rarInfinite is set; ISFitnessUI.render draws
+-- the infinity sign texture over the box (R.drawInfinity).
+-- Any number put into the box (vanilla or a test) wins over the flag.
+function R.windowTime(ui)
+	local t = ui and ui.exeTime and ui.exeTime:getInternalText()
+	if t == nil then return nil end
+	if ui._rarInfinite and t == "" then return R.INFINITE end
+	return tonumber(t)
+end
+
+function R.setWindowTime(ui, v)
+	if v == R.INFINITE then
+		ui._rarInfinite = true
+		ui.exeTime:setText("")
+	else
+		ui._rarInfinite = nil
+		ui.exeTime:setText(tostring(v))
+	end
+end
+
+-- next / previous window value (an off-list number moves to the nearest list value that way)
+function R.stepTime(cur, up)
+	local list = R.FITNESS_TIMES
+	if cur == R.INFINITE then return up and R.INFINITE or list[#list] end
+	cur = tonumber(cur) or list[1]
+	if up then
+		for _, v in ipairs(list) do if v > cur then return v end end
+		return R.INFINITE
+	end
+	for i = #list, 1, -1 do if list[i] < cur then return list[i] end end
+	return list[1]
+end
+
+-- Minutes left after a tired stop, rounded up to the next window value (23 -> 30, 7 -> 10,
+-- 70 -> 90) so the window shows a value it can hold; an off-list value broke vanilla's +/-
+-- (23 -> 63 over the 60 cap, 7 stays 7, 13 -> 3). Never longer than the time first chosen (a time
+-- set by other code, not in the list, stays the cap). Past 180 (not from the window): 10-minute steps.
+function R.fitnessMinutes(msLeft, chosen)
+	local raw = msLeft / 60000
+	if raw < 1 then return nil end
+	local m
+	for _, v in ipairs(R.FITNESS_TIMES) do
+		if v >= raw then m = v break end
+	end
+	m = m or math.ceil(raw / 10) * 10
+	chosen = tonumber(chosen)
+	if chosen and chosen >= 1 and m > chosen then m = chosen end
+	return m
+end
+
+-- the time the player first chose for this exercise (kept across tired resumes)
+local function chosenMinutes(a)
+	return tonumber(a._rarChosen) or tonumber(a.timeToExe)
+end
+
 local function fitnessUI(p)
 	local ui = ISFitnessUI.instance and ISFitnessUI.instance[p:getPlayerNum() + 1]
 	if ui and ui:isVisible() and ui.player == p then return ui end
@@ -176,7 +244,8 @@ end
 
 -- exercise whose time ran out: same exercise for the time first chosen
 local function detectTimeUp(a, p)
-	if not R.opt("continueOnTimeUp") then return nil end
+	local infinite = a._rarInfinite == true
+	if not infinite and not R.opt("continueOnTimeUp") then return nil end
 	if moodle(p, MoodleType.PAIN) > 3 then
 		log("exercise time over but pain", moodle(p, MoodleType.PAIN), "- not continuing")
 		return nil
@@ -185,12 +254,13 @@ local function detectTimeUp(a, p)
 		log("exercise time over, other action queued - not continuing")
 		return nil
 	end
-	local minutes = tonumber(a.timeToExe)
+	-- the time first chosen, not the rounded remainder a tired resume ran for
+	local minutes = infinite and R.INFINITE_CHUNK or chosenMinutes(a)
 	if not minutes or minutes < 1 then return nil end
 	local rec = {
 		kind = "fitness", loop = true, key = "loop:" .. tostring(a.exeDataType), label = tostring(a.exeDataType),
-		exercise = a.exercise, exeDataType = a.exeDataType, minutes = minutes,
-		chained = a._rarChain == true,
+		exercise = a.exercise, exeDataType = a.exeDataType, minutes = minutes, chosen = minutes,
+		infinite = infinite, chained = a._rarChain == true,
 		tired = moodle(p, MoodleType.ENDURANCE) > ISFitnessUI.enduranceLevelThreshold,
 	}
 	-- fitness window open, not tired: keep the window from re-equipping the old items (it would queue
@@ -234,8 +304,12 @@ local function queuedFitness(p)
 	return list
 end
 
-local function markChain(p, chain)
-	for _, x in ipairs(queuedFitness(p)) do x._rarChain = chain end
+local function markChain(p, chain, chosen, infinite)
+	for _, x in ipairs(queuedFitness(p)) do
+		x._rarChain = chain
+		x._rarChosen = chosen
+		x._rarInfinite = infinite or nil
+	end
 end
 
 R.adapters.ISFitnessAction = {
@@ -250,11 +324,15 @@ R.adapters.ISFitnessAction = {
 			return nil
 		end
 		local now = getGameTime():getCalender():getTimeInMillis()
-		local minutes = math.floor((a.endMS - now) / 60000)
-		if minutes < 1 then return nil end
+		local chosen = chosenMinutes(a)
+		local infinite = a._rarInfinite == true
+		-- no limit: what is left of the chunk does not matter, start a new chunk
+		local minutes = infinite and R.INFINITE_CHUNK or R.fitnessMinutes(a.endMS - now, chosen)
+		if not minutes then return nil end
+		log("exercise minutes left", string.format("%.1f", (a.endMS - now) / 60000), "-> resume for", minutes)
 		return {
 			kind = "fitness", key = "fitness:" .. tostring(a.exeDataType), label = tostring(a.exeDataType),
-			exercise = a.exercise, exeDataType = a.exeDataType, minutes = minutes,
+			exercise = a.exercise, exeDataType = a.exeDataType, minutes = minutes, chosen = chosen, infinite = infinite,
 			chain = a._rarChain == true,
 		}
 	end,
@@ -272,16 +350,16 @@ R.adapters.ISFitnessAction = {
 			-- vanilla OK button path: equips the prop, puts bags away, re-equips afterwards
 			ui.selectedExe = r.exercise
 			ui:selectedNewExercise()
-			ui.exeTime:setText(tostring(r.minutes))
+			R.setWindowTime(ui, r.infinite and R.INFINITE or r.minutes)
 			ui:onClick({ internal = "OK" })
 			if r.loop then
 				-- the window re-equips what the player held before the first exercise, not the prop
 				if r.uiStash then ui.itemsToReequip = r.uiStash.items or {}; r.uiStash = nil end
 				if #queuedFitness(p) == 0 then return false end
-				markChain(p, true)
+				markChain(p, true, r.chosen, r.infinite)
 				return true
 			end
-			markChain(p, r.chain)
+			markChain(p, r.chain, r.chosen, r.infinite)
 			return true
 		end
 		if exeData.item then
@@ -293,6 +371,8 @@ R.adapters.ISFitnessAction = {
 		end
 		local action = ISFitnessAction:new(p, r.exercise, r.minutes, exeData, exeData.type)
 		action._rarChain = r.loop or r.chain
+		action._rarChosen = r.chosen
+		action._rarInfinite = r.infinite or nil
 		ISTimedActionQueue.add(action)
 		return true
 	end,
@@ -311,7 +391,8 @@ R.adapters.ISChopTreeAction = {
 		if not sq then return nil end
 		return {
 			kind = "chop", key = string.format("chop:%d,%d,%d", sq:getX(), sq:getY(), sq:getZ()),
-			label = "tree", tree = tree, x = sq:getX(), y = sq:getY(), z = sq:getZ(),
+			-- only the square is kept: a felled IsoTree is pooled and reused for other trees (IsoTree.toppleTree)
+			label = "tree", x = sq:getX(), y = sq:getY(), z = sq:getZ(),
 		}
 	end,
 	ready = function(p) return p:isEnduranceSufficientForAction() end,
@@ -357,7 +438,7 @@ function R.begin(p, rec)
 		count = { key = rec.key, n = 0 }
 		R.counts[num] = count
 	end
-	if rec.kind ~= "rest" and count.n >= R.opt("maxRepeats") then
+	if rec.kind ~= "rest" and not rec.infinite and count.n >= R.opt("maxRepeats") then
 		log("repeat limit reached for", rec.key, count.n)
 		say(p, "IGUI_RestAndResume_LimitReached", false)
 		R.counts[num] = nil
@@ -380,7 +461,7 @@ function R.beginLoop(p, num, rec)
 		R.loopCounts[num] = lc
 	end
 	local max = math.floor(R.opt("maxLoops"))
-	if lc.n >= max then
+	if not rec.infinite and lc.n >= max then
 		log("loop limit reached for", rec.key, lc.n .. "/" .. max)
 		say(p, "IGUI_RestAndResume_LoopLimitReached", false, tostring(lc.n))
 		R.loopCounts[num] = nil
@@ -389,7 +470,7 @@ function R.beginLoop(p, num, rec)
 	end
 	R.states[num] = { rec = rec, phase = rec.tired and "sit" or "start", ticks = 0, player = p }
 	log("detected", "timeup", rec.key, "tired", tostring(rec.tired), "loop", (lc.n + 1) .. "/" .. max,
-		"endurance", string.format("%.3f", endurance(p)))
+		"endurance", string.format("%.3f", endurance(p)), rec.infinite and "no limit" or "")
 	if rec.tired then say(p, "IGUI_RestAndResume_Resting", true) end
 end
 
@@ -409,7 +490,10 @@ local function doResume(num, st)
 	end
 	local ok, res = pcall(rec.resume, p, rec)
 	if ok and res then
-		if rec.loop then
+		if rec.loop and rec.infinite then
+			log("continued", rec.kind, rec.key, "loop", tostring(lc and lc.n or "?"), "no limit, chunk minutes", rec.minutes)
+			say(p, "IGUI_RestAndResume_ContinuedNoLimit", true, tostring(lc and lc.n or 1))
+		elseif rec.loop then
 			local max = tostring(math.floor(R.opt("maxLoops")))
 			log("continued", rec.kind, rec.key, "loop", tostring(lc and lc.n or "?") .. "/" .. max, "minutes", rec.minutes)
 			say(p, "IGUI_RestAndResume_Continued", true, tostring(lc and lc.n or 1), max)
@@ -643,6 +727,108 @@ function R.onTick()
 end
 
 ------------------------------------------------------------------------
+-- Fitness window: longer times and "no limit"
+------------------------------------------------------------------------
+-- +/- step through R.FITNESS_TIMES and the no-limit label (replaces vanilla onClickTime: its
+-- 10..60 / 10 is the start of the same list). Windows pick the function up when they are built
+-- (ISButton target = self.onClickTime in initialise), so wrapping at OnGameStart is in time.
+-- The sign is a mod texture (tools/make_infinity.py: white, antialiased, 56x30 with the ink in rows
+-- 1-28). Not a font: the UI bitmap fonts have no U+221E, and the SDF fonts drawn through
+-- TextManager get no SDF shader (only AtomUIText does), which showed a blurred blob (run 074440).
+-- Drawn with the ink at 40% of the box height (about the height of the box's digits; 60% looked
+-- twice the size of the numbers, run 080750), centred, at a whole-pixel position.
+R.INF_TEX = { path = "media/textures/RestAndResume_Infinity.png", w = 56, h = 30, ink = 28, frac = 0.4 }
+function R.infTexture()
+	if R._infTex == nil then R._infTex = getTexture(R.INF_TEX.path) or false end
+	return R._infTex or nil
+end
+function R.drawInfinity(ui)
+	local tex = R.infTexture()
+	if not tex then return false end
+	local box = ui.exeTime
+	local t = R.INF_TEX
+	local h = math.floor(box:getHeight() * t.frac * t.h / t.ink + 0.5)
+	local w = math.floor(h * t.w / t.h + 0.5)
+	local x = math.floor(box:getX() + (box:getWidth() - w) / 2 + 0.5)
+	local y = math.floor(box:getY() + (box:getHeight() - h) / 2 + 0.5)
+	ui:drawTextureScaled(tex, x, y, w, h, 1, 1, 1, 1)
+	ui._rarInfSize = w .. "x" .. h
+	return true
+end
+
+local function onClickTime(self, button)
+	local cur = R.windowTime(self)
+	local up = button and button.internal == "TIMEPLUS"
+	if not up and not (button and button.internal == "TIMEMINUS") then return end
+	local nxt = R.stepTime(cur, up)
+	-- mod off: nothing would continue a no-limit exercise, so the list ends at 180
+	if nxt == R.INFINITE and not R.opt("enabled") then nxt = R.FITNESS_TIMES[#R.FITNESS_TIMES] end
+	R.setWindowTime(self, nxt)
+end
+R.onClickTime = onClickTime
+
+local function installWindow()
+	-- the box is BUTTON_HGT wide (ISFitnessUI.lua:78), made for two digits: widen it for "180" and
+	-- move +/- along (the ∞ is drawn over the box and fits the old width too)
+	local origInit = ISFitnessUI.initialise
+	ISFitnessUI.initialise = function(self, ...)
+		local res = origInit(self, ...)
+		local ok, err = pcall(function()
+			local tm = getTextManager()
+			local font = self.exeTime.font or UIFont.Medium
+			local need = tm:MeasureStringX(font, "180") + 12
+			local grow = need - self.exeTime:getWidth()
+			if grow > 0 then
+				self.exeTime:setWidth(need)
+				self.plusBtn:setX(self.plusBtn:getX() + grow)
+				self.minusBtn:setX(self.minusBtn:getX() + grow)
+			end
+		end)
+		if not ok then log("fitness window widen error", tostring(err)) end
+		return res
+	end
+
+	ISFitnessUI.onClickTime = onClickTime
+
+	-- ∞ over the empty box. ISFitnessUI:render runs after the children (UIElement.render: Lua prerender,
+	-- children, Lua render), so it lands on top of the box.
+	local origRender = ISFitnessUI.render
+	ISFitnessUI.render = function(self, ...)
+		local res = origRender(self, ...)
+		self._rarInfDrawn = false
+		if R.windowTime(self) == R.INFINITE then
+			local ok, err = pcall(R.drawInfinity, self)
+			if ok and not err then err = "texture missing: " .. R.INF_TEX.path; ok = false end
+			if ok then self._rarInfDrawn = true
+			elseif not self._rarInfErr then self._rarInfErr = true; log("drawing the infinity sign failed", tostring(err)) end
+		end
+		return res
+	end
+
+	-- OK with "no limit": vanilla reads tonumber(text) (ISFitnessUI.lua:310), so hand it one chunk and
+	-- mark the queued exercise; the box goes back to No limit (empty + flag) afterwards
+	local origClick = ISFitnessUI.onClick
+	ISFitnessUI.onClick = function(self, button, ...)
+		if not (button and button.internal == "OK" and R.windowTime(self) == R.INFINITE) then
+			return origClick(self, button, ...)
+		end
+		local before = {}
+		for _, x in ipairs(queuedFitness(self.player)) do before[x] = true end
+		self.exeTime:setText(tostring(R.INFINITE_CHUNK))
+		local ok, err = pcall(origClick, self, button, ...)
+		R.setWindowTime(self, R.INFINITE)
+		if not ok then log("fitness OK (no limit) error", tostring(err)) return end
+		for _, x in ipairs(queuedFitness(self.player)) do
+			if not before[x] then
+				x._rarInfinite = true
+				x._rarChosen = R.INFINITE_CHUNK
+				log("exercise started with no time limit:", tostring(x.exeDataType))
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------------
 -- Install
 ------------------------------------------------------------------------
 local function install()
@@ -655,6 +841,8 @@ local function install()
 		if not ok then log("onStop error", tostring(err)) end
 		return origStop(self, ...)
 	end
+
+	installWindow()
 
 	local origUpdate = ISFitnessAction.update
 	ISFitnessAction.update = function(self, ...)

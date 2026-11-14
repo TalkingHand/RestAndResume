@@ -4,9 +4,10 @@ Project Zomboid Build 42 mod. When a repeating job stops because the character i
 
 | Stopped work | What happens after resting |
 |---|---|
-| Exercise (`ISFitnessAction`, stops above the 2nd endurance moodle level) | Same exercise again, for the minutes that were left. Uses the fitness window's own OK path when the window is open |
+| Exercise (`ISFitnessAction`, stops above the 2nd endurance moodle level) | Same exercise again, for the minutes that were left, rounded up to a time the fitness window can show (23 left -> 30, 7 -> 10; never longer than first chosen). Uses the fitness window's own OK path when the window is open |
 | Chopping a tree (`ISChopTreeAction`, stops at the last endurance level) | Same tree again (vanilla walk/equip/chop). Damage already done stays on the tree |
 | [Area Tasks](https://steamcommunity.com/sharedfiles/filedetails/?id=3793163745) job blocked with "Not enough endurance" | Same task on the same area (and destination) again |
+| Exercise set to **No limit** (∞) in the fitness window (+ past 60: 90, 120, 180, ∞) | Exercise, rest when out of breath, exercise again, until you stop it (move, Esc, Cancel, another action). Runs in 60-minute chunks; ignores the continue option and both repeat limits. Zombie, moodle and pain rules still stop it |
 | Any other action that ends at the last endurance level | Rest only, nothing restarted |
 | Exercise whose time ran out (option, on by default) | Same exercise again for the time first chosen, right away; rests first if the character is out of breath. Up to 5 times in a row (option), counted apart from the resumes above |
 
@@ -23,7 +24,7 @@ Options (Options > Mods, per player): on/off, endurance to rest to (default 95%)
 
 ## Compatibility
 
-Client only, no server files. Single player and multiplayer; tested in single player on B42.22.2. The out-of-breath rest and resume was seen working on a dedicated server; continuing after the time runs out is tested in single player only. Safe to add or remove mid-save. Resuming queues the same vanilla actions a player would queue, so the server validates them as usual. Vanilla hooks are listed in [`vanilla-deps.txt`](vanilla-deps.txt).
+Client only, no server files. Single player and multiplayer; tested in single player on B42.22.2. The out-of-breath rest and resume was seen working on a dedicated server; continuing after the time runs out and the longer/no-limit exercise times are tested in single player only. The fitness window's +/- buttons are replaced (10..60 as vanilla, then 90/120/180/∞), so another mod that also changes them may clash. Safe to add or remove mid-save. Resuming queues the same vanilla actions a player would queue, so the server validates them as usual. Vanilla hooks are listed in [`vanilla-deps.txt`](vanilla-deps.txt).
 
 ## Test
 

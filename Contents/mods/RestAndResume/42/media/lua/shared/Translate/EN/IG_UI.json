@@ -24,9 +24,10 @@
     "IGUI_RestAndResume_Moodle": "Not fit to continue - resume cancelled",
     "IGUI_RestAndResume_LimitReached": "Resumed too many times - stopping",
     "IGUI_RestAndResume_ContinueOnTimeUp": "Continue exercise when its time runs out",
-    "IGUI_RestAndResume_ContinueOnTimeUp_tooltip": "When an exercise ends because its time ran out, start the same exercise again for the same time. Rests first if you are out of breath. Not when you stopped it yourself.",
+    "IGUI_RestAndResume_ContinueOnTimeUp_tooltip": "When an exercise ends because its time ran out, start the same exercise again for the same time. With the fitness window set to No limit (after 180 with +) the exercise always continues, without this option or its limit. Rests first if you are out of breath. Not when you stopped it yourself.",
     "IGUI_RestAndResume_MaxLoops": "Continue at most (times in a row)",
     "IGUI_RestAndResume_MaxLoops_tooltip": "How many times an exercise is started again after its time ran out. Counted separately from resumes after resting.",
     "IGUI_RestAndResume_Continued": "Exercising again (%1/%2)",
-    "IGUI_RestAndResume_LoopLimitReached": "Exercise continued %1 times - stopping"
+    "IGUI_RestAndResume_LoopLimitReached": "Exercise continued %1 times - stopping",
+    "IGUI_RestAndResume_ContinuedNoLimit": "Exercising again (%1, no limit)"
 }
