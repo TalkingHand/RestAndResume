@@ -1,0 +1,55 @@
+当角色因为喘不过气而中断重复性的工作时,Rest and Resume 会让角色原地坐下休息,缓过来后再继续刚才的工作。
+
+[b]不必在每次喘不过气后,都手动重新开始同一项锻炼或去砍同一棵树。[/b]
+
+[h2]会继续的工作[/h2]
+[list]
+[*][b]锻炼:[/b]按剩余时间重新进行同一项锻炼。剩余时间会向上取整为健身窗口能显示的值(剩 23 分钟 → 30,剩 7 分钟 → 10),但不会超过最初选择的时间。
+[*][b]砍倒树:[/b]继续砍同一棵树,已经造成的伤害会保留。
+[*][b]Area Tasks(如已安装):[/b]因耐力不足而中断的任务会在同一区域重新开始。
+[*][b]其他动作:[/b]在耐力降到最低一级时中断的其他动作,只会坐下休息,不会重新开始。
+[/list]
+
+[h2]更长的锻炼[/h2]
+[list]
+[*][b]时间到后继续:[/b]锻炼因时间到而结束时,会按最初选择的时间重新开始同一项锻炼;如果已经喘不过气,会先休息。默认最多连续 5 次,与上面的继续次数分开计算。
+[*][b]更长时间:[/b]健身窗口的 + 按钮在 60 之后还可以选 90、120、180,最后是 [b]∞(无限制)[/b]。
+[*][b]无限制:[/b]锻炼,累了就休息,休息好再锻炼,直到你自己停止。它不受“时间到后继续”选项和次数上限的限制,但僵尸、状态和剧烈疼痛的规则仍然有效。
+[/list]
+你自己停止的锻炼(移动、按 Esc、点击“取消”按钮、进行其他动作)不会被继续。
+
+[h2]何时停止[/h2]
+[list]
+[*][b]僵尸:[/b]看得见的僵尸进入设定距离(默认 12 格),或者任何僵尸进入 5 格以内(无论是否看得见)时,角色会站起来。
+[*][b]玩家:[/b]你移动、站起来或开始做其他事。
+[*][b]状态:[/b]饥饿、口渴、疲倦或受伤超过设定等级。锻炼后的肌肉酸痛不算在内。
+[*][b]次数:[/b]同一项工作连续继续的次数过多(默认 5 次)。
+[*][b]疼痛:[/b]疼痛严重时(即原版不允许开始锻炼的程度)不会重新开始锻炼。
+[/list]
+
+[h2]选项[/h2]
+在 游戏选项 > 模组 > Rest and Resume 中设置,每位玩家各自设置。本模组的选项在游戏中以英文显示。
+[table]
+[tr][th]选项[/th][th]默认值[/th][th]说明[/th][/tr]
+[tr][td]Rest and resume when out of breath[/td][td]开启[/td][td]开启或关闭本模组。[/td][/tr]
+[tr][td]Rest until endurance reaches (percent)[/td][td]95[/td][td]耐力达到该值时站起来继续工作。30-100。[/td][/tr]
+[tr][td]Stop resting when a zombie is within (tiles)[/td][td]12[/td][td]对看得见的僵尸生效的距离。1-40。[/td][/tr]
+[tr][td]Resume at most (times in a row)[/td][td]5[/td][td]同一项工作最多连续继续几次。1-30。[/td][/tr]
+[tr][td]Cancel above moodle level[/td][td]2[/td][td]饥饿、口渴、疲倦或受伤状态超过该等级时取消休息。设为 0 时,只要出现其中任一状态就取消。[/td][/tr]
+[tr][td]Show text above the character[/td][td]开启[/td][td]开始休息、取消休息或继续工作时,在角色头顶显示简短提示。[/td][/tr]
+[tr][td]Also rest after other actions[/td][td]开启[/td][td]其他动作在耐力最低一级时中断后,只坐下休息,不重新开始。[/td][/tr]
+[tr][td]Continue exercise when its time runs out[/td][td]开启[/td][td]锻炼时间到后重新开始同一项锻炼。[/td][/tr]
+[tr][td]Continue at most (times in a row)[/td][td]5[/td][td]锻炼最多连续继续几次。1-20。[/td][/tr]
+[/table]
+
+[h2]兼容性[/h2]
+[list]
+[*]仅需客户端,服务器无需安装。继续工作时排入的是玩家自己也会执行的原版动作,服务器会照常检查。
+[*]本模组替换了健身窗口的 +/- 按钮,因此可能与同样修改这些按钮的模组冲突。
+[*]可以随时添加到现有存档或从中移除。
+[*]已在 42.22.2 版本的单人游戏中测试。喘不过气后休息的功能也已确认在专用服务器上可用。时间到后继续锻炼,以及更长时间和无限制模式,尚未在多人游戏中测试。
+[/list]
+
+Source: https://github.com/TalkingHand/RestAndResume
+
+[url=https://ko-fi.com/talkinghands2285][img]https://raw.githubusercontent.com/TalkingHand/RestAndResume/main/art/kofi_button.png[/img][/url]

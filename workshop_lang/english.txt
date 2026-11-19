@@ -1,0 +1,55 @@
+When a repeating job stops because your character is out of breath, Rest and Resume has them sit down, catch their breath and go back to the same work.
+
+[b]No more restarting the same exercise or the same tree by hand every time you run out of breath.[/b]
+
+[h2]What resumes[/h2]
+[list]
+[*][b]Exercise:[/b] the same exercise, for the minutes that were left, rounded up to a time the fitness window can show (23 left → 30, 7 → 10). Never longer than the time you first chose.
+[*][b]Cutting down a tree:[/b] the same tree. The damage already done stays.
+[*][b]Area Tasks (if installed):[/b] a job that stopped for lack of endurance starts again on the same area.
+[*][b]Other actions:[/b] actions that stop at the last endurance level only sit down and rest; nothing is restarted.
+[/list]
+
+[h2]Longer exercise[/h2]
+[list]
+[*][b]Continue when time runs out:[/b] when an exercise ends because its time is up, the same exercise starts again for the time you first chose, after a rest if you are out of breath. Up to 5 times in a row by default, counted apart from the resumes above.
+[*][b]Longer times:[/b] the + button in the fitness window goes past 60: 90, 120, 180, then [b]∞ (no limit)[/b].
+[*][b]No limit:[/b] exercise, rest when out of breath and exercise again until you stop it. It ignores the continue option and the repeat limits; zombies, moodles and heavy pain still stop it.
+[/list]
+Exercise you stop yourself (moving, Esc, the Cancel button, another action) is never continued.
+
+[h2]When it stops[/h2]
+[list]
+[*][b]Zombies:[/b] a zombie you can see comes within range (12 tiles by default), or any zombie gets within 5 tiles, seen or not. You stand up.
+[*][b]You:[/b] you move, stand up or start something else.
+[*][b]Moodles:[/b] hunger, thirst, tiredness or injury goes above the set level. Muscle stiffness after a workout does not count.
+[*][b]Repeats:[/b] the same work was resumed too many times in a row (5 by default).
+[*][b]Pain:[/b] exercise is not restarted in heavy pain (the level at which vanilla won't let you start exercising).
+[/list]
+
+[h2]Options[/h2]
+Options > Mods > Rest and Resume. Each player sets their own.
+[table]
+[tr][th]Option[/th][th]Default[/th][th]Description[/th][/tr]
+[tr][td]Rest and resume when out of breath[/td][td]On[/td][td]Turns the mod on or off.[/td][/tr]
+[tr][td]Rest until endurance reaches (percent)[/td][td]95[/td][td]Stand up and resume at this endurance. 30-100.[/td][/tr]
+[tr][td]Stop resting when a zombie is within (tiles)[/td][td]12[/td][td]Range for zombies you can see. 1-40.[/td][/tr]
+[tr][td]Resume at most (times in a row)[/td][td]5[/td][td]How many times the same work is resumed before giving up. 1-30.[/td][/tr]
+[tr][td]Cancel above moodle level[/td][td]2[/td][td]Hunger, thirst, tiredness or injury above this level cancels the rest. 0 = any of these moodles.[/td][/tr]
+[tr][td]Show text above the character[/td][td]On[/td][td]Short messages when resting starts, is cancelled or the work resumes.[/td][/tr]
+[tr][td]Also rest after other actions[/td][td]On[/td][td]Other actions that stop at the last endurance level: sit down and rest, without resuming.[/td][/tr]
+[tr][td]Continue exercise when its time runs out[/td][td]On[/td][td]Start the same exercise again when its time is up.[/td][/tr]
+[tr][td]Continue at most (times in a row)[/td][td]5[/td][td]How many times in a row an exercise is continued. 1-20.[/td][/tr]
+[/table]
+
+[h2]Compatibility[/h2]
+[list]
+[*]Client only; the server needs nothing. Resuming queues the same vanilla actions a player would, so the server checks them as usual.
+[*]The fitness window's +/- buttons are replaced, so another mod that changes them may clash.
+[*]Safe to add to or remove from an existing save.
+[*]Tested in single player on build 42.22.2. Resting after running out of breath was also seen working on a dedicated server. Continuing after the time runs out and the longer and no-limit times are not tested in multiplayer yet.
+[/list]
+
+Source: https://github.com/TalkingHand/RestAndResume
+
+[url=https://ko-fi.com/talkinghands2285][img]https://raw.githubusercontent.com/TalkingHand/RestAndResume/main/art/kofi_button.png[/img][/url]
